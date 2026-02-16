@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Fun Chat</title>
+    <style>
+      body { margin: 0; padding: 0; }
+    </style>
+  </head>
+  <body>
+    <script>
+      // Redirect to login or chat based on auth state
+      const token = localStorage.getItem('token');
+      if (token) {
+        window.location.href = '/chat.html';
+      } else {
+        window.location.href = '/login.html';
+      }
+    </script>
+  </body>
+</html>

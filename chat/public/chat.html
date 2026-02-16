@@ -1,0 +1,49 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Fun Chat</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <h1>Fun Chat</h1>
+          <div style="font-size: 14px; color: #666;">
+            <span id="userDisplayName"></span>
+            <button id="logoutBtn" style="margin-left: 16px; padding: 8px 12px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">Logout</button>
+          </div>
+        </div>
+      </header>
+
+      <section id="controls">
+        <label>Username: <input id="username" placeholder="Your name" /></label>
+        <button id="setName">Set</button>
+        <hr />
+        <div id="publicChatSection" style="margin-bottom: 12px; text-align: center; width: 100%;">
+          <button id="switchPublic" style="background: #28a745; color: white; padding: 10px 16px; border: none; border-radius: 4px; cursor: pointer;">📢 Public Chat (Global)</button>
+        </div>
+        <div id="groupChatSection" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+          <label>Group Room: <input id="room" placeholder="room-name" /></label>
+          <button id="joinRoom">Join/Create Room</button>
+          <button id="leaveRoom">Leave Room</button>
+        </div>
+      </section>
+
+      <section id="chat">
+        <div id="chatHeader" style="font-weight: bold; margin-bottom: 8px; padding: 8px; background: #d4edda; border-radius: 4px; color: #155724;">📢 Public Chat</div>
+        <div id="messages"></div>
+        <div id="composer">
+          <input id="toUser" placeholder="(optional) send to username" />
+          <input id="message" placeholder="Type a message" />
+          <button id="send">Send</button>
+        </div>
+      </section>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/chat-script.js"></script>
+  </body>
+  </html>

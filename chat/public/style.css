@@ -1,0 +1,19 @@
+body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+#app { max-width: 900px; margin: 24px auto; padding: 12px; }
+header { margin-bottom: 12px; }
+#controls { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+hr { margin: 8px 0; opacity: 0.3; }
+#publicChatSection { text-align: center; width: 100%; }
+#groupChatSection { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+#chat { border:2px solid #28a745; padding:12px; background:#fafafa; border-radius: 6px; }
+#chatHeader { font-weight: bold; margin-bottom: 12px; padding: 10px; background: #d4edda; color: #155724; border-radius: 4px; text-align: center; }
+#messages { height: 360px; overflow:auto; background:#f9f9f9; padding:8px; border: 1px solid #ddd; margin-bottom: 8px; border-radius: 4px; }
+.system { color: #666; font-style: italic; }
+.msg { color:#111; }
+.private { color: #b00; font-weight: bold; }
+#composer { display:flex; gap:8px; margin-top:8px; }
+#composer input { flex:1; padding:8px; border: 1px solid #ccc; border-radius: 4px; }
+#composer button { padding:8px 12px; background:#007bff; color:white; border:none; border-radius:4px; cursor:pointer; font-weight: bold; }
+#composer button:hover { background:#0056b3; }
+button { border-radius: 4px; cursor: pointer; }
+button:hover { opacity: 0.9; }

@@ -1,0 +1,236 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Fun Chat — Login</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 0;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .auth-container {
+        background: white;
+        padding: 40px;
+        border-radius: 12px;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+        width: 100%;
+        max-width: 400px;
+      }
+      h1 {
+        text-align: center;
+        color: #333;
+        margin-bottom: 30px;
+      }
+      .form-group {
+        margin-bottom: 16px;
+      }
+      label {
+        display: block;
+        margin-bottom: 6px;
+        color: #333;
+        font-weight: bold;
+      }
+      input {
+        width: 100%;
+        padding: 12px;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        font-size: 16px;
+        box-sizing: border-box;
+      }
+      input:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 8px rgba(102, 126, 234, 0.3);
+      }
+      button {
+        width: 100%;
+        padding: 12px;
+        background: #667eea;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 16px;
+        font-weight: bold;
+        cursor: pointer;
+        transition: background 0.3s;
+        margin-top: 8px;
+      }
+      button:hover {
+        background: #5568d3;
+      }
+      .toggle-signup {
+        text-align: center;
+        margin-top: 16px;
+        font-size: 14px;
+        color: #666;
+      }
+      .toggle-signup a {
+        color: #667eea;
+        cursor: pointer;
+        text-decoration: underline;
+      }
+      .error {
+        color: #d32f2f;
+        font-size: 14px;
+        margin-top: 8px;
+        text-align: center;
+      }
+      .hidden {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="auth-container">
+      <!-- Login Form -->
+      <div id="loginForm">
+        <h1>🔐 Fun Chat — Login</h1>
+        <div class="form-group">
+          <label for="loginEmail">Email</label>
+          <input id="loginEmail" type="email" placeholder="your@email.com" />
+        </div>
+        <div class="form-group">
+          <label for="loginPassword">Password</label>
+          <input id="loginPassword" type="password" placeholder="Password" />
+        </div>
+        <button id="loginBtn">Sign In</button>
+        <div id="loginError" class="error"></div>
+        <div class="toggle-signup">
+          Don't have an account? <a id="toSignup">Create one</a>
+        </div>
+      </div>
+
+      <!-- Signup Form -->
+      <div id="signupForm" class="hidden">
+        <h1>🎉 Fun Chat — Join</h1>
+        <div class="form-group">
+          <label for="signupEmail">Email</label>
+          <input id="signupEmail" type="email" placeholder="your@email.com" />
+        </div>
+        <div class="form-group">
+          <label for="signupName">Display Name</label>
+          <input id="signupName" type="text" placeholder="Your Name" />
+        </div>
+        <div class="form-group">
+          <label for="signupPassword">Password (min 6 chars)</label>
+          <input id="signupPassword" type="password" placeholder="Password" />
+        </div>
+        <button id="signupBtn">Create Account</button>
+        <div id="signupError" class="error"></div>
+        <div class="toggle-signup">
+          Already have an account? <a id="toLogin">Sign in</a>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const loginForm = document.getElementById('loginForm');
+      const signupForm = document.getElementById('signupForm');
+      const toSignup = document.getElementById('toSignup');
+      const toLogin = document.getElementById('toLogin');
+      const loginBtn = document.getElementById('loginBtn');
+      const signupBtn = document.getElementById('signupBtn');
+      const loginError = document.getElementById('loginError');
+      const signupError = document.getElementById('signupError');
+      const loginEmail = document.getElementById('loginEmail');
+      const loginPassword = document.getElementById('loginPassword');
+      const signupEmail = document.getElementById('signupEmail');
+      const signupName = document.getElementById('signupName');
+      const signupPassword = document.getElementById('signupPassword');
+
+      toSignup.addEventListener('click', () => {
+        loginForm.classList.add('hidden');
+        signupForm.classList.remove('hidden');
+        loginError.textContent = '';
+      });
+
+      toLogin.addEventListener('click', () => {
+        signupForm.classList.add('hidden');
+        loginForm.classList.remove('hidden');
+        signupError.textContent = '';
+      });
+
+      loginBtn.addEventListener('click', async () => {
+        const email = loginEmail.value.trim();
+        const password = loginPassword.value;
+        if (!email || !password) {
+          loginError.textContent = 'Email and password required';
+          return;
+        }
+
+        try {
+          const res = await fetch('/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
+          });
+          const data = await res.json();
+          if (data.ok) {
+            localStorage.setItem('token', data.token);
+            localStorage.setItem('displayName', data.displayName);
+            window.location.href = '/chat.html';
+          } else {
+            loginError.textContent = data.error || 'Login failed';
+          }
+        } catch (e) {
+          loginError.textContent = 'Network error';
+        }
+      });
+
+      signupBtn.addEventListener('click', async () => {
+        const email = signupEmail.value.trim();
+        const displayName = signupName.value.trim();
+        const password = signupPassword.value;
+        if (!email || !displayName || !password) {
+          signupError.textContent = 'All fields required';
+          return;
+        }
+        if (password.length < 6) {
+          signupError.textContent = 'Password must be at least 6 characters';
+          return;
+        }
+
+        try {
+          const res = await fetch('/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, displayName, password })
+          });
+          const data = await res.json();
+          if (data.ok) {
+            localStorage.setItem('token', data.token);
+            localStorage.setItem('displayName', data.displayName);
+            window.location.href = '/chat.html';
+          } else {
+            signupError.textContent = data.error || 'Signup failed';
+          }
+        } catch (e) {
+          signupError.textContent = 'Network error';
+        }
+      });
+
+      // Enter key support
+      [loginPassword, signupPassword].forEach(el => {
+        el.addEventListener('keypress', (e) => {
+          if (e.key === 'Enter') {
+            if (loginForm.classList.contains('hidden')) signupBtn.click();
+            else loginBtn.click();
+          }
+        });
+      });
+
+      // Auto-check if already logged in
+      if (localStorage.getItem('token')) {
+        window.location.href = '/chat.html';
+      }
+    </script>
+  </body>
+</html>
