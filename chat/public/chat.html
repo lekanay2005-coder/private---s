@@ -1,43 +1,55 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Fun Chat</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fun Chat - Real-time Messaging</title>
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
     <div id="app">
       <header>
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <h1>Fun Chat</h1>
-          <div style="font-size: 14px; color: #666;">
+        <div>
+          <h1>💬 Fun Chat</h1>
+          <div style="display: flex; align-items: center; gap: 10px;">
             <span id="userDisplayName"></span>
-            <button id="logoutBtn" style="margin-left: 16px; padding: 8px 12px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">Logout</button>
+            <button id="logoutBtn">🚪 Logout</button>
           </div>
         </div>
       </header>
 
       <section id="controls">
-        <label>Username: <input id="username" placeholder="Your name" /></label>
-        <button id="setName">Set</button>
-        <hr />
-        <div id="publicChatSection" style="margin-bottom: 12px; text-align: center; width: 100%;">
-          <button id="switchPublic" style="background: #28a745; color: white; padding: 10px 16px; border: none; border-radius: 4px; cursor: pointer;">📢 Public Chat (Global)</button>
+        <label for="username">👤 Username:</label>
+        <input id="username" type="text" placeholder="Set your chat name" />
+        <button id="setName">✓ Set</button>
+        
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <label for="statusSelect" style="font-size: 13px;">Status:</label>
+          <select id="statusSelect" style="padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; background: white;">
+            <option value="online">🟢 Online</option>
+            <option value="away">🟡 Away</option>
+            <option value="do-not-disturb">🔴 Do Not Disturb</option>
+          </select>
         </div>
-        <div id="groupChatSection" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-          <label>Group Room: <input id="room" placeholder="room-name" /></label>
-          <button id="joinRoom">Join/Create Room</button>
-          <button id="leaveRoom">Leave Room</button>
+
+        <div id="publicChatSection">
+          <button id="switchPublic">📢 Public Chat (Global)</button>
+        </div>
+
+        <div id="groupChatSection">
+          <label for="room">🔒 Group Room:</label>
+          <input id="room" type="text" placeholder="room-name" />
+          <button id="joinRoom">➕ Join/Create</button>
+          <button id="leaveRoom">➖ Leave</button>
         </div>
       </section>
 
       <section id="chat">
-        <div id="chatHeader" style="font-weight: bold; margin-bottom: 8px; padding: 8px; background: #d4edda; border-radius: 4px; color: #155724;">📢 Public Chat</div>
+        <div id="chatHeader">📢 Public Chat (Global)</div>
         <div id="messages"></div>
         <div id="composer">
-          <input id="toUser" placeholder="(optional) send to username" />
-          <input id="message" placeholder="Type a message" />
+          <input id="toUser" type="text" placeholder="@username (optional)" />
+          <input id="message" type="text" placeholder="Type a message..." />
           <button id="send">Send</button>
         </div>
       </section>
@@ -46,4 +58,4 @@
     <script src="/socket.io/socket.io.js"></script>
     <script src="/chat-script.js"></script>
   </body>
-  </html>
+</html>

@@ -1,26 +1,39 @@
-# Fun Chat
+# Fun Chat - Application
 
-Fun Chat — minimal chat application using Express + Socket.io. Supports:
-- Setting a username
-- Creating/joining rooms (groups)
-- Sending messages to rooms
-- Sending private messages to a username
+Modern real-time chat with JWT authentication, group messaging, and persistent storage.
 
-Quick start:
+## Quick Start
 
 ```bash
-cd chat
 npm install
 npm start
-# open http://localhost:3000
+# Open http://localhost:3000
 ```
 
-Important notes / defaults implemented by the helper:
-- Username uniqueness is enforced (server will reject a taken name).
-- Messages are persisted to a local SQLite database `chat.db`.
-- When you join a room the last messages for that room are returned.
+## Features Implemented
 
-Fill-in items you should consider next:
-- Add real authentication (JWT/OAuth) if you need secure accounts.
-- Use Redis adapter and a production DB when scaling across nodes.
-- Configure TLS and a domain for public deployment.
+✅ **JWT Authentication** - Secure user accounts with bcrypt hashing  
+✅ **Public Chat** - Real-time global messaging  
+✅ **Group Rooms** - Create and manage private chat rooms  
+✅ **Private Messages** - Direct user-to-user messaging  
+✅ **Message History** - SQLite persistence with history loading  
+✅ **Admin Management** - Admin promoted users with setup keys  
+
+## Configuration
+
+Edit environment variables for production deployment:
+
+```bash
+PORT                 # Server port (default: 3000)
+JWT_SECRET          # Secret for JWT signing (CHANGE THIS IN PRODUCTION)
+ADMIN_SETUP_KEY     # Key for admin setup (CHANGE THIS IN PRODUCTION)
+```
+
+## Scaling Considerations
+
+For production with multiple processes:
+- Use Redis adapter with Socket.io for message distribution
+- Deploy to cloud database instead of local SQLite
+- Enable HTTPS/TLS for secure connections
+- Add rate limiting and input validation
+- Implement proper error logging and monitoring
