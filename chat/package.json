@@ -4,7 +4,8 @@
   "description": "Fun Chat — minimal Socket.io chat with groups and private messages",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "jest"
   },
   "dependencies": {
     "bcrypt": "^5.1.1",
@@ -12,5 +13,8 @@
     "jsonwebtoken": "^9.0.0",
     "socket.io": "^4.7.2",
     "sqlite3": "^5.0.2"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
   }
 }
