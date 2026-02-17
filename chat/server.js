@@ -113,8 +113,15 @@ db.serialize(() => {
     to_user TEXT,
     msg TEXT,
     ts INTEGER,
-    edited_at INTEGER
+    edited_at INTEGER,
+    read_at INTEGER
   )`);
+  // Migration: add read_at column if it doesn't exist
+  db.all(`PRAGMA table_info(messages)`, (err, columns) => {
+    if (columns && !columns.some(col => col.name === 'read_at')) {
+      db.run(`ALTER TABLE messages ADD COLUMN read_at INTEGER`);
+    }
+  });
 });
 
 // Maps to track usernames <-> socket ids (in-memory for routing)
@@ -210,6 +217,19 @@ function verifyToken(req, res, next) {
   }
 }
 
+// Get all users with their online status
+app.get('/users', verifyToken, (req, res) => {
+    db.all('SELECT display_name FROM accounts', (err, rows) => {
+        if (err) return res.status(500).json({ error: 'DB error' });
+
+        const users = rows.map(row => ({
+            displayName: row.display_name,
+            isOnline: usernameToSocket.has(row.display_name)
+        }));
+        res.json(users);
+    });
+});
+
 // Admin setup endpoint
 app.post('/admin/setup', async (req, res) => {
   const { email, displayName, password, setupKey } = req.body;
@@ -261,11 +281,31 @@ app.post('/admin/promote', (req, res) => {
 // History endpoint: returns last 200 messages for a room
 app.get('/history/:room', (req, res) => {
   const room = req.params.room;
-  db.all('SELECT id, room, from_user, to_user, msg, ts FROM messages WHERE room = ? ORDER BY ts ASC LIMIT 200', [room], (err, rows) => {
+  db.all('SELECT id, room, from_user, to_user, msg, ts, read_at FROM messages WHERE room = ? ORDER BY ts ASC LIMIT 200', [room], (err, rows) => {
     if (err) return res.status(500).json({ error: 'DB error' });
     res.json(rows || []);
   });
 });
+
+// History endpoint for private messages
+app.get('/history/private/:user1/:user2', verifyToken, (req, res) => {
+    const { user1, user2 } = req.params;
+    const requester = req.user.displayName;
+
+    if (requester !== user1 && requester !== user2) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    db.all(`SELECT id, from_user, to_user, msg, ts, read_at
+            FROM messages
+            WHERE room IS NULL AND ((from_user = ? AND to_user = ?) OR (from_user = ? AND to_user = ?))
+            ORDER BY ts ASC LIMIT 200`,
+            [user1, user2, user2, user1], (err, rows) => {
+        if (err) return res.status(500).json({ error: 'DB error' });
+        res.json(rows || []);
+    });
+});
+
 
 // ============ ADMIN ENDPOINTS ============
 
@@ -394,6 +434,7 @@ io.on('connection', (socket) => {
   const email = socket.user.email;
   const displayName = socket.user.displayName;
   socketToEmail.set(socket.id, email);
+  io.emit('user status', { username: displayName, status: 'online' });
 
   socket.on('set username', (username, ack) => {
     if (!username || typeof username !== 'string') return ack && ack({ ok: false, error: 'Invalid username' });
@@ -413,6 +454,7 @@ io.on('connection', (socket) => {
         socketToUsername.set(socket.id, username);
         usernameToSocket.set(username, socket.id);
         ack && ack({ ok: true });
+        io.emit('user status', { username, status: 'online' });
       });
     });
   });
@@ -440,27 +482,74 @@ io.on('connection', (socket) => {
     if (payload.to) {
       const targetId = usernameToSocket.get(payload.to);
       // Persist private message
-      db.run('INSERT INTO messages(room, from_user, to_user, msg, ts) VALUES(?,?,?,?,?)', [null, from, payload.to, msg, ts], (err) => {
-        if (err) console.error('Message save error:', err);
+      db.run('INSERT INTO messages(room, from_user, to_user, msg, ts) VALUES(?,?,?,?,?)', [null, from, payload.to, msg, ts], function(err) {
+        if (err) {
+            console.error('Message save error:', err)
+            return;
+        };
+        const messageId = this.lastID;
+        if (targetId) {
+          io.to(targetId).emit('private message', { id: messageId, from, msg, ts, read_at: null });
+          socket.emit('private message', { id: messageId, from, msg, ts, delivered: true });
+        } else {
+          socket.emit('system message', `❌ User ${payload.to} not found or offline`);
+        }
       });
-      if (targetId) {
-        io.to(targetId).emit('private message', { from, msg, ts, read: false });
-        socket.emit('private message', { from, msg, ts, delivered: true });
-      } else {
-        socket.emit('system message', `❌ User ${payload.to} not found or offline`);
-      }
     } else if (payload.room) {
       // Persist room message
-      db.run('INSERT INTO messages(room, from_user, to_user, msg, ts) VALUES(?,?,?,?,?)', [payload.room, from, null, msg, ts], (err) => {
-        if (err) console.error('Message save error:', err);
+      db.run('INSERT INTO messages(room, from_user, to_user, msg, ts) VALUES(?,?,?,?,?)', [payload.room, from, null, msg, ts], function(err) {
+        if (err) {
+            console.error('Message save error:', err);
+            return;
+        }
+        io.to(payload.room).emit('chat message', { from, msg, room: payload.room, ts, id: this.lastID });
       });
-      io.to(payload.room).emit('chat message', { from, msg, room: payload.room, ts, id: ts });
     } else {
-      db.run('INSERT INTO messages(room, from_user, to_user, msg, ts) VALUES(?,?,?,?,?)', [null, from, null, msg, ts], (err) => {
+      db.run('INSERT INTO messages(room, from_user, to_user, msg, ts) VALUES(?,?,?,?,?)', [null, from, null, msg, ts], function(err) {
         if (err) console.error('Message save error:', err);
+        io.emit('chat message', { from, msg, ts, id: this.lastID });
       });
-      io.emit('chat message', { from, msg, ts, id: ts });
     }
+  });
+
+  socket.on('mark as read', (messageIds) => {
+    const username = socketToUsername.get(socket.id);
+    if (!username) return;
+
+    const ids = Array.isArray(messageIds) ? messageIds : [messageIds];
+    if (ids.length === 0) return;
+
+    const placeholders = ids.map(() => '?').join(',');
+
+    db.all(`SELECT id, from_user, to_user FROM messages WHERE id IN (${placeholders})`, ids, (err, messages) => {
+        if (err || !messages || messages.length === 0) return;
+
+        const messagesToUpdate = messages.filter(m => m.to_user === username);
+        const idsToUpdate = messagesToUpdate.map(m => m.id);
+        if (idsToUpdate.length === 0) return;
+
+        const updatePlaceholders = idsToUpdate.map(() => '?').join(',');
+        const now = Date.now();
+
+        db.run(`UPDATE messages SET read_at = ? WHERE id IN (${updatePlaceholders}) AND read_at IS NULL`, [now, ...idsToUpdate], function(err) {
+            if (err || this.changes === 0) return;
+
+            const notifications = new Map();
+            messagesToUpdate.forEach(m => {
+                if (!notifications.has(m.from_user)) {
+                    notifications.set(m.from_user, []);
+                }
+                notifications.get(m.from_user).push(m.id);
+            });
+
+            notifications.forEach((msgIds, from_user) => {
+                const senderSocketId = usernameToSocket.get(from_user);
+                if (senderSocketId) {
+                    io.to(senderSocketId).emit('messages read', { ids: msgIds, read_at: now, by: username });
+                }
+            });
+        });
+    });
   });
 
   // Typing indicator
@@ -518,6 +607,7 @@ io.on('connection', (socket) => {
     if (username) {
       usernameToSocket.delete(username);
       db.run('DELETE FROM users WHERE username = ?', [username]);
+      io.emit('user status', { username, status: 'offline' });
     }
     socketToUsername.delete(socket.id);
     socketToEmail.delete(socket.id);
