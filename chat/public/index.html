@@ -1,87 +1,77 @@
+
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Fun Chat - Real-time Messaging</title>
-    <style>
-      * {
-        box-sizing: border-box;
-      }
-
-      body {
-        margin: 0;
-        padding: 0;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-
-      .loader {
-        text-align: center;
-        color: white;
-        animation: fadeIn 0.5s ease-out;
-      }
-
-      .loader h1 {
-        font-size: 48px;
-        margin: 0 0 20px 0;
-        font-weight: 700;
-      }
-
-      .loader p {
-        font-size: 18px;
-        margin: 0;
-        opacity: 0.9;
-      }
-
-      .spinner {
-        display: inline-block;
-        width: 40px;
-        height: 40px;
-        border: 4px solid rgba(255, 255, 255, 0.3);
-        border-top: 4px solid white;
-        border-radius: 50%;
-        animation: spin 1s linear infinite;
-        margin-top: 20px;
-      }
-
-      @keyframes spin {
-        to {
-          transform: rotate(360deg);
-        }
-      }
-
-      @keyframes fadeIn {
-        from {
-          opacity: 0;
-          transform: translateY(20px);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
-      }
-    </style>
-  </head>
-  <body>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fun Chat</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app-loading" class="loader-container">
     <div class="loader">
       <h1>💬 Fun Chat</h1>
-      <p>Loading your messages...</p>
+      <p>Connecting to the server...</p>
       <div class="spinner"></div>
     </div>
+  </div>
 
-    <script>
-      // Redirect to login or chat based on auth state
-      const token = localStorage.getItem('token');
-      if (token) {
-        window.location.href = '/chat.html';
-      } else {
-        window.location.href = '/login.html';
-      }
-    </script>
-  </body>
+  <div id="main-content" style="display: none;">
+    <div id="wallpaper-container"></div>
+    <header>
+      <h1><span id="chat-title">Fun Chat</span></h1>
+      <div>
+        <span id="userDisplayName"></span>
+        <button id="logoutBtn">Logout</button>
+      </div>
+    </header>
+
+    <div id="chat-container">
+        <div id="sidebar">
+            <div id="room-list">
+                <h2>Rooms</h2>
+                <ul id="rooms"></ul>
+                <div id="create-room-container">
+                    <input type="text" id="new-room-name" placeholder="New room name" />
+                    <button id="create-room-btn">Create</button>
+                </div>
+            </div>
+            <div id="user-list">
+                <h2>Users</h2>
+                <ul id="users"></ul>
+            </div>
+             <div id="settings-container">
+                <input type="text" id="wallpaper-url" placeholder="Enter wallpaper URL" />
+                <button id="set-wallpaper-btn">Set Wallpaper</button>
+            </div>
+        </div>
+
+        <div id="chat-window">
+            <div id="messages"></div>
+            <div id="typing-indicator"></div>
+            <form id="message-form">
+                <input id="message-input" autocomplete="off" placeholder="Type a message..." />
+                <button type="submit">Send</button>
+            </form>
+        </div>
+    </div>
+  </div>
+
+  <button id="theme-toggle">🌙</button>
+
+  <div id="dm-modal" class="modal">
+      <div class="modal-content">
+          <span class="close-btn">&times;</span>
+          <h2 id="dm-recipient"></h2>
+          <div id="dm-messages"></div>
+          <form id="dm-form">
+              <input id="dm-input" autocomplete="off" placeholder="Type a private message..." />
+              <button type="submit">Send</button>
+          </form>
+      </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="chat-script.js"></script>
+</body>
 </html>

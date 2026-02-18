@@ -1,1 +1,302 @@
-const token = localStorage.getItem(\'token\');\nif (!token) {\n  window.location.href = \'/login.html\';\n}\n\nconst socket = io({\n  auth: { token }\n});\n\nconst userDisplayNameEl = document.getElementById(\'userDisplayName\');\nconst logoutBtn = document.getElementById(\'logoutBtn\');\nconst usernameEl = document.getElementById(\'username\');\nconst setNameBtn = document.getElementById(\'setName\');\nconst roomEl = document.getElementById(\'room\');\nconst joinRoomBtn = document.getElementById(\'joinRoom\');\nconst leaveRoomBtn = document.getElementById(\'leaveRoom\');\nconst messagesEl = document.getElementById(\'messages\');\nconst messageEl = document.getElementById(\'message\');\nconst sendBtn = document.getElementById(\'send\');\nconst toUserEl = document.getElementById(\'toUser\');\nconst switchPublicBtn = document.getElementById(\'switchPublic\');\nconst chatHeaderEl = document.getElementById(\'chatHeader\');\nconst userListEl = document.getElementById(\'userList\');\n\nlet currentChat = { type: \'public\', name: \'public\' };\nlet isAdmin = false;\nlet adminPanelEl = null;\nlet typingTimeout = null;\nconst typingUsers = new Set();\nconst unreadMessagesToMark = new Set();\nlet markAsReadTimeout = null;\nlet allUsers = [];\n\n// Toast notification system\nfunction showToast(message, type = \'info\') {\n  const toast = document.createElement(\'div\');\n  toast.style.cssText = `\n    position: fixed;\n    bottom: 20px;\n    right: 20px;\n    background: ${type === \'error\' ? \'#d32f2f\' : type === \'success\' ? \'#28a745\' : \'#667eea\'};\n    color: white;\n    padding: 12px 20px;\n    border-radius: 8px;\n    box-shadow: 0 4px 12px rgba(0,0,0,0.2);\n    z-index: 2000;\n    animation: slideInRight 0.3s ease-out;\n    font-weight: 500;\n  `;\n  toast.textContent = message;\n  document.body.appendChild(toast);\n  setTimeout(() => {\n    toast.style.animation = \'slideOutRight 0.3s ease-in\';\n    setTimeout(() => toast.remove(), 300);\n  }, 3000);\n}\n\n// Add CSS animations if not exist\nif (!document.getElementById(\'toastStyles\')) {\n  const style = document.createElement(\'style\');\n  style.id = \'toastStyles\';\n  style.textContent = `\n    @keyframes slideInRight {\n      from { transform: translateX(400px); opacity: 0; }\n      to { transform: translateX(0); opacity: 1; }\n    }\n    @keyframes slideOutRight {\n      from { transform: translateX(0); opacity: 1; }\n      to { transform: translateX(400px); opacity: 0; }\n    }\n  `;\n  document.head.appendChild(style);\n}\n\n// Add CSS for message status icons\nif (!document.getElementById(\'messageStatusStyles\')) {\n    const style = document.createElement(\'style\');\n    style.id = \'messageStatusStyles\';\n    style.textContent = `\n    .status-icon {\n        font-size: 16px;\n        margin-left: 5px;\n        color: #999;\n        display: inline-block;\n        vertical-align: middle;\n    }\n    .status-icon.read {\n        color: #4fc3f7;\n    }\n    `;\n    document.head.appendChild(style);\n}\n\nconst readObserver = new IntersectionObserver((entries) => {\n    entries.forEach(entry => {\n        if (entry.isIntersecting) {\n            const messageId = entry.target.dataset.messageId;\n            if (messageId) {\n                unreadMessagesToMark.add(parseInt(messageId));\n                clearTimeout(markAsReadTimeout);\n                markAsReadTimeout = setTimeout(sendMarkAsRead, 500);\n            }\n            readObserver.unobserve(entry.target);\n        }\n    });\n}, { threshold: 0.9 });\n\nfunction sendMarkAsRead() {\n    if (unreadMessagesToMark.size > 0) {\n        socket.emit(\'mark as read\', Array.from(unreadMessagesToMark));\n        unreadMessagesToMark.clear();\n    }\n}\n\n// Check if user is admin by decoding token\nfunction checkAdminStatus() {\n  const token = localStorage.getItem(\'token\');\n  if (!token) return;\n  \n  try {\n    const payload = JSON.parse(atob(token.split(\'.\')[1]));\n    isAdmin = payload.isAdmin === true;\n    if (isAdmin) {\n      createAdminPanel();\n      loadAdminStats();\n    }\n  } catch (e) {\n    console.error(\'Error decoding token:\', e);\n  }\n}\n\n// Create admin panel UI\nfunction createAdminPanel() {\n  const headerDiv = document.querySelector(\'header > div\');\n  if (!headerDiv) return;\n  \n  // Add admin badge\n  const adminBadge = document.createElement(\'span\');\n  adminBadge.style.cssText = \'background: #ff6b6b; color: white; padding: 4px 12px; border-radius: 20px; font-weight: 600; font-size: 12px; margin-left: 10px;\';\n  adminBadge.textContent = \'⭐ ADMIN\';\n  userDisplayNameEl.appendChild(adminBadge);\n  \n  // Create admin panel button\n  const adminBtn = document.createElement(\'button\');\n  adminBtn.id = \'adminPanelBtn\';\n  adminBtn.textContent = \'⚙️ Admin Panel\';\n  adminBtn.style.cssText = \'background: #ff6b6b; color: white; margin-left: 10px; padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;\';\n  \n  adminBtn.addEventListener(\'click\', toggleAdminPanel);\n  userDisplayNameEl.parentElement.appendChild(adminBtn);\n}\n\n// Toggle admin panel\nfunction toggleAdminPanel() {\n  if (!adminPanelEl) {\n    adminPanelEl = document.createElement(\'div\');\n    adminPanelEl.id = \'adminPanel\';\n    adminPanelEl.style.cssText = `\n      position: fixed;\n      top: 100px;\n      right: 20px;\n      width: 350px;\n      background: white;\n      border: 2px solid #ff6b6b;\n      border-radius: 8px;\n      padding: 20px;\n      box-shadow: 0 10px 40px rgba(0,0,0,0.3);\n      z-index: 1000;\n      max-height: 500px;\n      overflow-y: auto;\n      font-family: Arial, sans-serif;\n    `;\n    \n    adminPanelEl.innerHTML = `\n      <div style=\"display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;\">\n        <h3 style=\"margin: 0; color: #ff6b6b;\">⚙️ Admin Panel</h3>\n        <button id=\"closeAdminPanel\" style=\"background: none; border: none; font-size: 20px; cursor: pointer;\">✕</button>\n      </div>\n      <div style=\"border-top: 2px solid #eee; padding-top: 12px;\">\n        <div style=\"margin-bottom: 16px;\">\n          <strong>📊 Statistics</strong>\n          <div id=\"adminStats\" style=\"font-size: 13px; line-height: 1.8; color: #666; margin-top: 8px;\">\n            <p>Loading...</p>\n          </div>\n        </div>\n        <div style=\"border-top: 1px solid #eee; padding-top: 12px;\">\n          <strong>🎤 Broadcast</strong>\n          <div style=\"margin-top: 8px;\">\n            <input id=\"announcementInput\" type=\"text\" placeholder=\"Type announcement...\" style=\"width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 8px;\">\n            <button id=\"broadcastBtn\" style=\"width: 100%; background: #ff6b6b; color: white; padding: 8px; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;\">Send Announcement</button>\n          </div>\n        </div>\n        <div style=\"border-top: 1px solid #eee; padding-top: 12px; margin-top: 12px;\">\n          <strong> All Messages</strong>\n          <div style=\"margin-top: 8px;\">\n            <button id=\"viewMessagesBtn\" style=\"width: 100%; background: #667eea; color: white; padding: 8px; border: none; border-radius: 4px; cursor: pointer; margin-bottom: 8px;\">View All Messages (Last 50)</button>\n            <div id=\"messagesView\" style=\"display: none; max-height: 300px; overflow-y: auto; background: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; padding: 8px; font-size: 12px; line-height: 1.6;\"></div>\n          </div>\n        </div>\n        <div style=\"border-top: 1px solid #eee; padding-top: 12px; margin-top: 12px;\">\n          <strong>🗑️ Dangerous Actions</strong>\n          <div style=\"margin-top: 8px;\">\n            <button id=\"clearAllMsgsBtn\" style=\"width: 100%; background: #ff9999; color: white; padding: 8px; border: none; border-radius: 4px; cursor: pointer; margin-bottom: 8px;\">Clear ALL Messages</button>\n            <button id=\"clearRoomMsgsBtn\" style=\"width: 100%; background: #ff9999; color: white; padding: 8px; border: none; border-radius: 4px; cursor: pointer;\">Clear Room Messages</button>\n          </div>\n        </div>\n      </div>\n    `;\n    \n    document.body.appendChild(adminPanelEl);\n    \n    // Event listeners\n    document.getElementById(\'closeAdminPanel\').addEventListener(\'click\', () => {\n      adminPanelEl.style.display = \'none\';\n    });\n    \n    document.getElementById(\'broadcastBtn\').addEventListener(\'click\', () => {\n      const msg = document.getElementById(\'announcementInput\').value.trim();\n      if (!msg) return alert(\'Enter message\');\n      socket.emit(\'admin announce\', msg, (res) => {\n        if (res && res.ok) {\n          document.getElementById(\'announcementInput\').value = \'\';\n          alert(\'✅ Announcement sent!\');\n        }\n      });\n    });\n    \n    document.getElementById(\'viewMessagesBtn\').addEventListener(\'click\', () => {\n      const token = localStorage.getItem(\'token\');\n      const messagesView = document.getElementById(\'messagesView\');\n      \n      if (messagesView.style.display === \'none\') {\n        messagesView.style.display = \'block\';\n        messagesView.innerHTML = \'<p style=\"color: #999;\">Loading...</p>\';\n        \n        fetch(\'/admin/messages?limit=50&offset=0\', {\n          headers: { \'Authorization\': `Bearer ${token}` }\n        })\n          .then(r => r.json())\n          .then(data => {\n            if (data.messages && data.messages.length > 0) {\n              const html = data.messages.map(msg => {\n                const type = msg.to_user ? \'🔒 Private\' : msg.room ? \'📢 Room\' : \'💬 Global\';\n                const room = msg.room ? `<strong style=\"color: #667eea;\">${msg.room}</strong>` : \'<em>__all__</em>\';\n                const target = msg.to_user ? `→ <strong>${msg.to_user}</strong>` : \'\';\n                return `<div style=\"border-bottom: 1px solid #e0e0e0; padding-bottom: 6px; margin-bottom: 6px;\">\n                  <strong>${msg.from_user}</strong> ${target} [${type}] ${room}<br>\n                  <em style=\"color: #999;\">${new Date(msg.ts).toLocaleString()}</em><br>\n                  <span style=\"color: #333;\">\"${msg.msg}\"</span>\n                </div>`;\n              }).join(\'\');\n              messagesView.innerHTML = html;\n            } else {\n              messagesView.innerHTML = \'<p style=\"color: #999;\">No messages found</p>\';\n            }\n          })\n          .catch(err => {\n            messagesView.innerHTML = \'<p style=\"color: #d32f2f;\">Error loading messages</p>\';\n          });\n      } else {\n        messagesView.style.display = \'none\';\n      }\n    });\n    \n    document.getElementById(\'clearAllMsgsBtn\').addEventListener(\'click\', () => {\n      if (confirm(\'⚠️ ARE YOU SURE? This will delete ALL messages!\')) {\n        fetch(\'/admin/messages\', { method: \'DELETE\', headers: { \'Authorization\': `Bearer ${token}` } })\n          .then(r => r.json())\n          .then(d => {\n            alert(d.message || \'Done\');\n            appendSystemMessage(\'Admin cleared all messages\');\n          });\n      }\n    });\n    \n    document.getElementById(\'clearRoomMsgsBtn\').addEventListener(\'click\', () => {\n      const room = currentChat.name || \'public\';\n      if (confirm(`Clear messages in \"${room}\"?`)) {\n        fetch(`/admin/messages/${room}`, { method: \'DELETE\', headers: { \'Authorization\': `Bearer ${token}` } })\n          .then(r => r.json())\n          .then(d => {\n            alert(d.message || \'Done\');\n            appendSystemMessage(`Admin cleared messages in ${room}`);\n          });\n      }\n    });\n  }\n  \n  adminPanelEl.style.display = adminPanelEl.style.display === \'none\' ? \'block\' : \'none\';\n}\n\n// Load admin statistics\nfunction loadAdminStats() {\n  const token = localStorage.getItem(\'token\');\n  fetch(\'/admin/stats\', { headers: { \'Authorization\': `Bearer ${token}` } })\n    .then(r => r.json())\n    .then(data => {\n      const statsEl = document.getElementById(\'adminStats\');\n      if (statsEl) {\n        statsEl.innerHTML = `\n          <p>👥 Users: <strong>${data.totalUsers}</strong></p>\n          <p>💬 Messages: <strong>${data.totalMessages}</strong></p>\n          <p>🏠 Rooms: <strong>${data.totalRooms}</strong></p>\n          <p>🟢 Online: <strong>${data.onlineUsers}</strong></p>\n        `;\n      }\n    })\n    .catch(console.error);\n}\n\n// Display logged-in user\nconst displayName = localStorage.getItem(\'displayName\');\nif (displayName) {\n  userDisplayNameEl.textContent = `👤 ${displayName}`;\n}\n\n// Check admin status and create panel if admin\ncheckAdminStatus();\n\nlogoutBtn.addEventListener(\'click\', () => {\n  localStorage.removeItem(\'token\');\n  localStorage.removeItem(\'displayName\');\n  window.location.href = \'/login.html\';\n});\n\nfunction timeFmt(ts) {\n  const d = new Date(ts);\n  return d.toLocaleTimeString();\n}\n\nfunction appendSystemMessage(msg) {\n    const d = document.createElement(\'div\');\n    d.textContent = msg;\n    d.className = \'system\';\n    messagesEl.appendChild(d);\n    messagesEl.scrollTop = messagesEl.scrollHeight;\n}\n\nfunction appendMessage(msg) {\n    const d = document.createElement(\'div\');\n    d.dataset.messageId = msg.id;\n\n    const time = `[${timeFmt(msg.ts)}] `;\n    const myUsername = localStorage.getItem(\'displayName\');\n    const isMyMessage = msg.from === myUsername;\n\n    let statusIcon = \'\';\n    if (isMyMessage && msg.to_user) {\n        if (msg.read_at) {\n            statusIcon = \'<span class=\"status-icon read\">✓✓</span>\';\n        } else if (msg.delivered) {\n            statusIcon = \'<span class=\"status-icon\">✓✓</span>\';\n        } else {\n            statusIcon = \'<span class=\"status-icon\">✓</span>\';\n        }\n    }\n\n    if (msg.to_user) { // Private Message\n        d.className = \'private\';\n        d.innerHTML = `${time} <strong>${msg.from}</strong>: ${msg.msg} ${statusIcon}`;\n    } else { // Room Message\n        d.className = \'msg\';\n        d.innerHTML = `${time} <strong>${msg.from}</strong>: ${msg.msg}`;\n    }\n\n    messagesEl.appendChild(d);\n    messagesEl.scrollTop = messagesEl.scrollHeight;\n\n    if (!isMyMessage && msg.to_user) {\n        readObserver.observe(d);\n    }\n}\n\nfunction updateChatHeader() {\n  if (currentChat.type === \'public\') {\n    chatHeaderEl.textContent = \'📢 Public Chat (Global)\';\n    toUserEl.value = \'\';\n    toUserEl.disabled = false;\n  } else if (currentChat.type === \'group\') {\n    chatHeaderEl.textContent = `🔒 Group: ${currentChat.name}`;\n    toUserEl.value = \'\';\n    toUserEl.disabled = false;\n  } else if (currentChat.type === \'private\') {\n    chatHeaderEl.textContent = `💬 Private Chat with ${currentChat.with}`;\n    toUserEl.value = currentChat.with;\n    toUserEl.disabled = true;\n  }\n}\n\nasync function loadHistory() {\n    messagesEl.innerHTML = \'<div class=\"system\">Loading history...</div>\';\n    let url = \'\';\n    if (currentChat.type === \'private\') {\n        const myUsername = localStorage.getItem(\'displayName\');\n        url = `/history/private/${myUsername}/${currentChat.with}`;\n    } else {\n        url = `/history/${encodeURIComponent(currentChat.name)}`;\n    }\n\n    try {\n        const res = await fetch(url, { headers: { \'Authorization\': `Bearer ${token}` } });\n        if (!res.ok) throw new Error(`History fetch failed: ${res.statusText}`);\n        const history = await res.json();\n        messagesEl.innerHTML = \'\';\n        history.forEach(appendMessage);\n    } catch (e) {\n        messagesEl.innerHTML = \`<div class=\"system\">Error loading history: ${e.message}</div>\`;\n    }\n}\n\nasync function loadUsers() {\n    try {\n        const res = await fetch(\'/users\', { headers: { \'Authorization\': `Bearer ${token}` } });\n        if (!res.ok) throw new Error(\'Failed to fetch users\');\n        allUsers = await res.json();\n        renderUsers();\n    } catch (e) {\n        console.error(e);\n    }\n}\n\nfunction renderUsers() {\n    if (!userListEl) return;\n    userListEl.innerHTML = \'\';\n    const myUsername = localStorage.getItem(\'displayName\');\n\n    allUsers.forEach(user => {\n        if (user.displayName === myUsername) return;\n\n        const userDiv = document.createElement(\'div\');\n        userDiv.className = \'user-item\';\n        userDiv.textContent = user.displayName;\n        userDiv.dataset.username = user.displayName;\n\n        const statusCircle = document.createElement(\'span\');\n        statusCircle.className = \'status-circle\';\n        statusCircle.style.backgroundColor = user.isOnline ? \'#28a745\' : \'#ccc\';\n        userDiv.prepend(statusCircle);\n\n        userDiv.addEventListener(\'click\', () => {\n            if (currentChat.type === \'group\') {\n                socket.emit(\'leave room\', currentChat.name);\n            }\n            currentChat = { type: \'private\', with: user.displayName };\n            updateChatHeader();\n            loadHistory();\n        });\n        userListEl.appendChild(userDiv);\n    });\n}\n\n// Auto-join public chat on load\nsocket.on(\'connect\', () => {\n  currentChat = { type: \'public\', name: \'public\' };\n  socket.emit(\'create or join\', \'public\', (res) => {\n    if (res && res.ok) {\n      appendSystemMessage(\'Connected to public chat\');\n      updateChatHeader();\n      loadHistory();\n      loadUsers();\n    }\n  });\n});\n\nsetNameBtn.addEventListener(\'click\', () => {\n  const name = usernameEl.value.trim();\n  if (!name) return showToast(\'Enter a name\', \'error\');\n  socket.emit(\'set username\', name, (res) => {\n    if (res && res.ok) {\n      localStorage.setItem(\'displayName\', name);\n      userDisplayNameEl.textContent = `👤 ${name}`;\n      showToast(`Username set to ${name}`, \'success\');\n      appendSystemMessage(`✓ Username set to ${name}`);\n    } else {\n      showToast(`Failed: ${res && res.error}`, \'error\');\n      appendSystemMessage(`✗ Failed to set username: ${res && res.error}`);\n    }\n  });\n});\n\n// Status selector\nconst statusSelect = document.getElementById(\'statusSelect\');\nif (statusSelect) {\n  statusSelect.addEventListener(\'change\', (e) => {\n    const status = e.target.value;\n    socket.emit(\'set status\', status, (res) => {\n      if (res && res.ok) {\n        showToast(`Status: ${status}`, \'success\');\n      }\n    });\n  });\n}\n\ntoUserEl.addEventListener(\'change\', () => {\n    const partner = toUserEl.value.trim();\n    if (partner) {\n        if (currentChat.type === \'group\') {\n            socket.emit(\'leave room\', currentChat.name);\n        }\n        currentChat = { type: \'private\', with: partner };\n        updateChatHeader();\n        loadHistory();\n    } else {\n        switchToPublicChat();\n    }\n});\n\nfunction switchToPublicChat() {\n    if (currentChat.type === \'public\') return;\n\n    if (currentChat.type === \'group\') {\n        socket.emit(\'leave room\', currentChat.name);\n    }\n    \n    currentChat = { type: \'public\', name: \'public\' };\n    socket.emit(\'create or join\', \'public\', (res) => {\n        if (res && res.ok) {\n            appendSystemMessage(\'Switched to public chat\');\n            updateChatHeader();\n            loadHistory();\n        }\n    });\n}\n\nswitchPublicBtn.addEventListener(\'click\', switchToPublicChat);\n\njoinRoomBtn.addEventListener(\'click\', async () => {\n  const roomName = roomEl.value.trim();\n  if (!roomName) return showToast(\'Enter a room name\', \'error\');\n  \n  if(currentChat.name === roomName) return;\n\n  if (currentChat.type !== \'public\') {\n      socket.emit(\'leave room\', currentChat.name);\n  }\n  \n  currentChat = { type: \'group\', name: roomName };\n  socket.emit(\'create or join\', roomName, (res) => {\n    if (res && res.ok) {\n      appendSystemMessage(`Joined group: ${roomName}`);\n      updateChatHeader();\n      loadHistory();\n    }\n  });\n});\n\nleaveRoomBtn.addEventListener(\'click\', () => {\n  const roomName = roomEl.value.trim();\n  if (!roomName) return showToast(\'Enter a room name to leave\', \'error\');\n  socket.emit(\'leave room\', roomName, (res) => {\n    if (res && res.ok) {\n        appendSystemMessage(`Left room ${roomName}`);\n        if (currentChat.name === roomName) {\n            switchToPublicChat();\n        }\n    }\n  });\n});\n\nsendBtn.addEventListener(\'click\', () => {\n  const msg = messageEl.value.trim();\n  if (!msg) return showToast(\'Type a message first\', \'error\');\n  if (msg.length > 500) return showToast(\'Message is too long (max 500 chars)\', \'error\');\n  \n  let payload = { msg };\n  if (currentChat.type === \'private\') {\n      payload.to = currentChat.with;\n  } else {\n      payload.room = currentChat.name;\n  }\n\n  socket.emit(\'chat message\', payload);\n  messageEl.value = \'\';\n\n  const typingPayload = currentChat.type === \'private\' ? { to: currentChat.with } : { room: currentChat.name };\n  socket.emit(\'stop typing\', typingPayload);\n  typingUsers.clear();\n  updateTypingDisplay();\n});\n\n// Typing indicator\nmessageEl.addEventListener(\'input\', () => {\n  const typingPayload = currentChat.type === \'private\' ? { to: currentChat.with } : { room: currentChat.name };\n  socket.emit(\'typing\', typingPayload);\n  \n  clearTimeout(typingTimeout);\n  typingTimeout = setTimeout(() => {\n    socket.emit(\'stop typing\', typingPayload);\n  }, 2000);\n});\n\nsocket.on(\'system message\', (txt) => appendSystemMessage(txt));\nsocket.on(\'chat message\', (data) => {\n    if (currentChat.type === \'group\' && currentChat.name === data.room) {\n        appendMessage(data);\n    } else if (currentChat.type === \'public\' && data.room === \'public\') {\n        appendMessage(data);\n    }\n});\nsocket.on(\'private message\', (data) => {\n    const myUsername = localStorage.getItem(\'displayName\');\n    if (currentChat.type === \'private\' && (data.from === currentChat.with || data.from === myUsername)) {\n        appendMessage(data);\n    } else if (data.from !== myUsername) {\n        showToast(`New private message from ${data.from}`);\n    }\n});\n\nsocket.on(\'messages read\', (data) => {\n    if (data && data.ids && currentChat.type === \'private\' && data.by === currentChat.with) {\n        data.ids.forEach(id => {\n            const msgEl = messagesEl.querySelector(`div[data-message-id=\"${id}\"] .status-icon`);\n            if (msgEl) {\n                msgEl.classList.add(\'read\');\n                msgEl.textContent = \'✓✓\';\n            }\n        });\n    }\n});\n\n// Typing indicators\nsocket.on(\'user typing\', (data) => {\n    if ( (currentChat.type === \'private\' && data.from === currentChat.with) || (currentChat.type === \'group\' && data.room === currentChat.name) ) {\n        typingUsers.add(data.username || data.from);\n        updateTypingDisplay();\n    }\n});\n\nsocket.on(\'user stop typing\', (data) => {\n  typingUsers.delete(data.username);\n  updateTypingDisplay();\n});\n\n// User status changes\nsocket.on(\'user status\', (data) => {\n    const user = allUsers.find(u => u.displayName === data.username);\n    if (user) {\n        user.isOnline = data.status === \'online\';\n        renderUsers();\n    }\n    appendSystemMessage(`${data.username} is now ${data.status}`);\n});\n\n// Typing display\nfunction updateTypingDisplay() {\n  const typingEl = document.getElementById(\'typingIndicator\');\n  if (typingUsers.size === 0) {\n    if (typingEl) typingEl.remove();\n  } else {\n    if (!typingEl) {\n      const div = document.createElement(\'div\');\n      div.id = \'typingIndicator\';\n      div.style.cssText = \'font-size: 12px; color: #999; padding: 4px 8px; font-style: italic;\';\n      messagesEl.parentElement.insertBefore(div, messagesEl);\n    }\n    const users = Array.from(typingUsers).slice(0, 2).join(\', \');\n    const more = typingUsers.size > 2 ? ` +${typingUsers.size - 2}` : \'\';\n    document.getElementById(\'typingIndicator\').textContent = `✍️ ${users}${more} is typing...`;\n  }\n}\n\nsocket.on(\'connect_error\', (error) => {\n  appendSystemMessage(`⚠️ Connection error: ${error.message}`);\n  showToast(\'Connection error - attempting to reconnect...\', \'error\');\n  if (error.message === \'No token\' || error.message === \'Invalid token\') {\n    localStorage.removeItem(\'token\');\n    window.location.href = \'/login.html\';\n  }\n});\n\nsocket.on(\'disconnect\', () => {\n  appendSystemMessage(\'⚠️ Disconnected. Reconnecting...\');\n  showToast(\'Disconnected from server\', \'error\');\n});\n\nsocket.on(\'reconnect\', () => {\n  appendSystemMessage(\'✅ Reconnected to server\');\n  showToast(\'Reconnected successfully!\', \'success\');\n  loadUsers();\n});\n
+document.addEventListener('DOMContentLoaded', () => {
+  // DOM Elements
+  const appLoading = document.getElementById('app-loading');
+  const mainContent = document.getElementById('main-content');
+  const userDisplayName = document.getElementById('userDisplayName');
+  const logoutBtn = document.getElementById('logoutBtn');
+  const roomsList = document.getElementById('rooms');
+  const usersList = document.getElementById('users');
+  const messages = document.getElementById('messages');
+  const messageForm = document.getElementById('message-form');
+  const messageInput = document.getElementById('message-input');
+  const newRoomNameInput = document.getElementById('new-room-name');
+  const createRoomBtn = document.getElementById('create-room-btn');
+  const typingIndicator = document.getElementById('typing-indicator');
+  const chatTitle = document.getElementById('chat-title');
+  const themeToggle = document.getElementById('theme-toggle');
+  const wallpaperUrlInput = document.getElementById('wallpaper-url');
+  const setWallpaperBtn = document.getElementById('set-wallpaper-btn');
+  const wallpaperContainer = document.getElementById('wallpaper-container');
+  const dmModal = document.getElementById('dm-modal');
+  const dmRecipient = document.getElementById('dm-recipient');
+  const dmInput = document.getElementById('dm-input');
+  const dmForm = document.getElementById('dm-form');
+  const dmCloseBtn = dmModal.querySelector('.close-btn');
+
+  // State
+  let currentRoom = null;
+  let currentUser = null;
+  let currentUserId = null;
+  let socket;
+  let currentDmRecipient = null;
+
+  // Check for auth token
+  const token = localStorage.getItem('fun-chat-token');
+  if (!token) {
+    window.location.href = '/login.html';
+    return;
+  }
+
+  // Initialize Socket.io
+  socket = io({ auth: { token } });
+
+  // ============ SOCKET.IO EVENT HANDLERS ==============
+
+  socket.on('connect', () => {
+    console.log('Connected to server');
+    appLoading.style.display = 'none';
+    document.getElementById('app').style.display = 'flex';
+    currentUser = localStorage.getItem('fun-chat-displayName');
+    currentUserId = parseInt(localStorage.getItem('fun-chat-userId'));
+    userDisplayName.textContent = currentUser;
+    socket.emit('set username', currentUser);
+    fetchAllUsers();
+    applyWallpaper();
+    joinRoom('general');
+  });
+
+  socket.on('disconnect', () => {
+    showSystemMessage('Disconnected from server. Reconnecting...');
+  });
+
+  socket.on('connect_error', (err) => {
+    if (err.message === 'Invalid token') {
+        localStorage.clear();
+        window.location.href = '/login.html';
+    }
+  });
+
+  socket.on('chat message', (data) => {
+    if (data.room === currentRoom) {
+      addMessage(data.from, data.msg, false, data.ts);
+    }
+  });
+  
+  socket.on('private message', (data) => {
+    const isOwn = data.from === currentUser;
+    if ((isOwn && data.to === currentDmRecipient?.displayName) || (!isOwn && data.from === currentDmRecipient?.displayName)) {
+        addDmMessage(data.from, data.msg, isOwn, data.ts);
+    } else {
+        showSystemMessage(`You have a new private message from ${data.from}`);
+    }
+  });
+
+  socket.on('system message', (msg) => {
+    showSystemMessage(msg);
+  });
+
+  socket.on('user status', (data) => {
+    updateUserStatus(data.userId, data.status);
+  });
+
+  socket.on('typing', (data) => {
+      if(data.room === currentRoom && data.user !== currentUser) {
+          typingIndicator.textContent = `${data.user} is typing...`;
+          setTimeout(() => {
+              typingIndicator.textContent = '';
+          }, 3000);
+      }
+  });
+
+  // ============ UI & EVENT LISTENERS ==============
+
+  logoutBtn.addEventListener('click', () => {
+    localStorage.clear();
+    socket.disconnect();
+    window.location.href = '/login.html';
+  });
+
+  messageForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const msg = messageInput.value.trim();
+    if (msg && currentRoom) {
+      socket.emit('chat message', { room: currentRoom, msg });
+      addMessage(currentUser, msg, true, Date.now());
+      messageInput.value = '';
+    }
+  });
+
+    messageInput.addEventListener('input', () => {
+        if (currentRoom) {
+            socket.emit('typing', { room: currentRoom, user: currentUser });
+        }
+    });
+
+  createRoomBtn.addEventListener('click', () => {
+    const newRoomName = newRoomNameInput.value.trim();
+    if (newRoomName) {
+      joinRoom(newRoomName);
+      newRoomNameInput.value = '';
+    }
+  });
+
+  dmCloseBtn.addEventListener('click', () => {
+      dmModal.style.display = 'none';
+      currentDmRecipient = null;
+  });
+
+  dmForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const msg = dmInput.value.trim();
+      if (msg && currentDmRecipient?.id) {
+          socket.emit('chat message', { to: currentDmRecipient.id, msg });
+          addDmMessage(currentUser, msg, true, Date.now());
+          dmInput.value = '';
+      }
+  });
+
+  setWallpaperBtn.addEventListener('click', () => {
+      const url = wallpaperUrlInput.value.trim();
+      if (url) {
+          localStorage.setItem('fun-chat-wallpaper', url);
+          applyWallpaper();
+          wallpaperUrlInput.value = '';
+      }
+  });
+  
+  themeToggle.addEventListener('click', () => {
+      document.body.classList.toggle('dark-theme');
+      localStorage.setItem('fun-chat-theme', document.body.classList.contains('dark-theme') ? 'dark' : 'light');
+  });
+
+  // ============ HELPER FUNCTIONS ==============
+
+  function applyWallpaper() {
+      const savedWallpaper = localStorage.getItem('fun-chat-wallpaper');
+      if (savedWallpaper) {
+          wallpaperContainer.style.backgroundImage = `url(${savedWallpaper})`;
+      }
+  }
+
+  function applyTheme() {
+      const savedTheme = localStorage.getItem('fun-chat-theme');
+      if (savedTheme === 'dark') {
+          document.body.classList.add('dark-theme');
+      }
+  }
+
+  async function fetchAllUsers() {
+    try {
+        const res = await fetch('/users', { headers: { 'Authorization': `Bearer ${token}` } });
+        if (!res.ok) throw new Error('Failed to fetch users');
+        const users = await res.json();
+        renderUsers(users);
+    } catch (err) {
+        console.error(err);
+    }
+  }
+
+  function renderUsers(users) {
+    usersList.innerHTML = '';
+    users.forEach(user => {
+        const li = document.createElement('li');
+        li.dataset.userId = user.id;
+        li.dataset.username = user.displayName;
+        li.innerHTML = `
+            <span class="status-circle ${user.isOnline ? 'status-online' : 'status-offline'}"></span>
+            ${user.displayName} <span class="user-id">#${user.id}</span>
+        `;
+        if(user.id !== currentUserId) {
+            li.addEventListener('click', () => openDm(user.id, user.displayName));
+        }
+        usersList.appendChild(li);
+    });
+  }
+
+  async function openDm(userId, displayName) {
+      currentDmRecipient = { id: userId, displayName };
+      dmRecipient.textContent = `Chat with ${displayName}`;
+      dmModal.style.display = 'flex';
+      document.getElementById('dm-messages').innerHTML = ''; 
+
+      try {
+        const res = await fetch(`/history/private/${userId}`, { headers: { 'Authorization': `Bearer ${token}` } });
+        const history = await res.json();
+        history.forEach(item => addDmMessage(item.from_user, item.msg, item.from_user === currentUser, item.ts));
+      } catch (err) {
+          console.error('Failed to fetch DM history:', err);
+      }
+  }
+
+  function updateUserStatus(userId, status) {
+    const userEl = usersList.querySelector(`[data-user-id="${userId}"] .status-circle`);
+    if (userEl) {
+        userEl.className = `status-circle status-${status === 'online' ? 'online' : 'offline'}`;
+    }
+  }
+
+  function joinRoom(roomName) {
+    if (currentRoom) {
+      socket.emit('leave room', currentRoom);
+      const oldRoomEl = roomsList.querySelector(`[data-room="${currentRoom}"]`);
+      if(oldRoomEl) oldRoomEl.classList.remove('active');
+    }
+
+    socket.emit('create or join', roomName, (ack) => {
+      if (ack.ok) {
+        currentRoom = roomName;
+        messages.innerHTML = '';
+        chatTitle.textContent = `# ${roomName}`;
+        showSystemMessage(`Joined room: ${roomName}`);
+        
+        let roomEl = roomsList.querySelector(`[data-room="${roomName}"]`);
+        if (!roomEl) {
+            roomEl = document.createElement('li');
+            roomEl.dataset.room = roomName;
+            roomEl.textContent = `# ${roomName}`;
+            roomEl.addEventListener('click', () => joinRoom(roomName));
+            roomsList.appendChild(roomEl);
+        }
+        roomEl.classList.add('active');
+        fetchHistory(roomName);
+      }
+    });
+  }
+
+  async function fetchHistory(room) {
+      try {
+          const res = await fetch(`/history/${room}`);
+          const history = await res.json();
+          history.forEach(item => addMessage(item.from_user, item.msg, item.from_user === currentUser, item.ts));
+      } catch (err) {
+          console.error('Failed to fetch history:', err);
+      }
+  }
+
+  function addMessage(from, text, isOwn, timestamp) {
+    const messageEl = document.createElement('div');
+    messageEl.classList.add('message', isOwn ? 'own' : 'other');
+    const ts = new Date(timestamp).toLocaleTimeString();
+    messageEl.innerHTML = `
+      <div class="meta"><span class="author">${from}</span><span class="timestamp">${ts}</span></div>
+      <div class="text">${text}</div>
+    `;
+    messages.appendChild(messageEl);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  function addDmMessage(from, text, isOwn, timestamp) {
+    const messagesContainer = document.getElementById('dm-messages');
+    const messageEl = document.createElement('div');
+    const ts = new Date(timestamp).toLocaleTimeString();
+    messageEl.classList.add('message', isOwn ? 'own' : 'other');
+    messageEl.innerHTML = `
+      <div class="meta"><span class="author">${from}</span><span class="timestamp">${ts}</span></div>
+      <div class="text">${text}</div>
+    `;
+    messagesContainer.appendChild(messageEl);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+  }
+
+  function showSystemMessage(msg) {
+    const messageEl = document.createElement('div');
+    messageEl.classList.add('system-message');
+    messageEl.textContent = msg;
+    messages.appendChild(messageEl);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  // Initial setup
+  applyTheme();
+  
+});

@@ -1,3 +1,4 @@
+
 const express = require('express');
 const http = require('http');
 const path = require('path');
@@ -18,7 +19,7 @@ const jwt = require('jsonwebtoken');
 
 // Security & middleware
 app.use(express.json({ limit: '10kb' }));
-app.use(express.urlencoded({ limit: '10kb' }));
+app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Security headers
@@ -92,7 +93,6 @@ db.serialize(() => {
     created_at INTEGER,
     last_login INTEGER
   )`);
-  // Migration: add is_admin column if it doesn't exist
   db.all(`PRAGMA table_info(accounts)`, (err, columns) => {
     if (columns && !columns.some(col => col.name === 'is_admin')) {
       db.run(`ALTER TABLE accounts ADD COLUMN is_admin INTEGER DEFAULT 0`);
@@ -116,7 +116,6 @@ db.serialize(() => {
     edited_at INTEGER,
     read_at INTEGER
   )`);
-  // Migration: add read_at column if it doesn't exist
   db.all(`PRAGMA table_info(messages)`, (err, columns) => {
     if (columns && !columns.some(col => col.name === 'read_at')) {
       db.run(`ALTER TABLE messages ADD COLUMN read_at INTEGER`);
@@ -124,47 +123,31 @@ db.serialize(() => {
   });
 });
 
-// Maps to track usernames <-> socket ids (in-memory for routing)
 const usernameToSocket = new Map();
 const socketToUsername = new Map();
+const userIdToSocket = new Map();
+const socketToUserId = new Map();
 const socketToEmail = new Map();
 
 // Auth endpoints
 app.post('/register', rateLimit, async (req, res) => {
   try {
     const { email, displayName, password } = req.body;
-    
-    // Validation
-    if (!email || !displayName || !password) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    if (!email || !displayName || !password || !validateEmail(email) || password.length < 6) {
+      return res.status(400).json({ error: 'Invalid input' });
     }
-    if (!validateEmail(email)) {
-      return res.status(400).json({ error: 'Invalid email format' });
-    }
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters' });
-    }
-    
     const sanitizedName = sanitizeInput(displayName);
     if (!sanitizedName) {
       return res.status(400).json({ error: 'Invalid display name' });
     }
-
     const hash = await bcrypt.hash(password, 10);
-    db.run(
-      'INSERT INTO accounts(email, display_name, password_hash, created_at) VALUES(?, ?, ?, ?)',
-      [email.toLowerCase(), sanitizedName, hash, Date.now()],
-      function(err) {
-        if (err) {
-          if (err.message.includes('UNIQUE')) {
-            return res.status(409).json({ error: 'Email already registered' });
-          }
-          return res.status(500).json({ error: 'Registration failed' });
-        }
-        const token = jwt.sign({ email: email.toLowerCase(), displayName: sanitizedName, id: this.lastID, isAdmin: false }, jwtSecret, { expiresIn: '7d' });
-        res.json({ ok: true, token, email: email.toLowerCase(), displayName: sanitizedName, isAdmin: false });
+    db.run('INSERT INTO accounts(email, display_name, password_hash, created_at) VALUES(?, ?, ?, ?)', [email.toLowerCase(), sanitizedName, hash, Date.now()], function(err) {
+      if (err) {
+        return res.status(err.message.includes('UNIQUE') ? 409 : 500).json({ error: 'Registration failed' });
       }
-    );
+      const token = jwt.sign({ email: email.toLowerCase(), displayName: sanitizedName, id: this.lastID, isAdmin: false }, jwtSecret, { expiresIn: '7d' });
+      res.json({ ok: true, token, email: email.toLowerCase(), displayName: sanitizedName, isAdmin: false, id: this.lastID });
+    });
   } catch (e) {
     res.status(500).json({ error: 'Server error' });
   }
@@ -173,112 +156,46 @@ app.post('/register', rateLimit, async (req, res) => {
 app.post('/login', rateLimit, (req, res) => {
   try {
     const { email, password } = req.body;
-    
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Missing email or password' });
+    if (!email || !password || !validateEmail(email)) {
+      return res.status(400).json({ error: 'Invalid input' });
     }
-    if (!validateEmail(email)) {
-      return res.status(400).json({ error: 'Invalid email format' });
-    }
-
     db.get('SELECT id, email, display_name, password_hash, is_admin FROM accounts WHERE email = ?', [email.toLowerCase()], async (err, row) => {
       if (err) return res.status(500).json({ error: 'Server error' });
       if (!row) return res.status(401).json({ error: 'Email not found' });
-
-      try {
-        const match = await bcrypt.compare(password, row.password_hash);
-        if (!match) return res.status(401).json({ error: 'Incorrect password' });
-
-        // Update last login
-        db.run('UPDATE accounts SET last_login = ? WHERE id = ?', [Date.now(), row.id]);
-
-        const token = jwt.sign({ email: row.email, displayName: row.display_name, id: row.id, isAdmin: row.is_admin }, jwtSecret, { expiresIn: '7d' });
-        res.json({ ok: true, token, email: row.email, displayName: row.display_name, isAdmin: row.is_admin });
-      } catch (e) {
-        res.status(500).json({ error: 'Authentication error' });
-      }
+      const match = await bcrypt.compare(password, row.password_hash);
+      if (!match) return res.status(401).json({ error: 'Incorrect password' });
+      db.run('UPDATE accounts SET last_login = ? WHERE id = ?', [Date.now(), row.id]);
+      const token = jwt.sign({ email: row.email, displayName: row.display_name, id: row.id, isAdmin: row.is_admin }, jwtSecret, { expiresIn: '7d' });
+      res.json({ ok: true, token, email: row.email, displayName: row.display_name, isAdmin: row.is_admin, id: row.id });
     });
   } catch (e) {
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-// Middleware to verify JWT
 function verifyToken(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'No token' });
-
   try {
-    const decoded = jwt.verify(token, jwtSecret);
-    req.user = decoded;
+    req.user = jwt.verify(token, jwtSecret);
     next();
   } catch (e) {
     res.status(401).json({ error: 'Invalid token' });
   }
 }
 
-// Get all users with their online status
 app.get('/users', verifyToken, (req, res) => {
-    db.all('SELECT display_name FROM accounts', (err, rows) => {
+    db.all('SELECT id, display_name FROM accounts', (err, rows) => {
         if (err) return res.status(500).json({ error: 'DB error' });
-
         const users = rows.map(row => ({
+            id: row.id,
             displayName: row.display_name,
-            isOnline: usernameToSocket.has(row.display_name)
+            isOnline: userIdToSocket.has(row.id)
         }));
         res.json(users);
     });
 });
 
-// Admin setup endpoint
-app.post('/admin/setup', async (req, res) => {
-  const { email, displayName, password, setupKey } = req.body;
-  if (setupKey !== adminSetupKey) {
-    return res.status(403).json({ error: 'Invalid setup key' });
-  }
-  if (!email || !displayName || !password) {
-    return res.status(400).json({ error: 'Missing email, displayName, or password' });
-  }
-  if (password.length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters' });
-  }
-
-  try {
-    const hash = await bcrypt.hash(password, 10);
-    db.run(
-      'INSERT OR REPLACE INTO accounts(email, display_name, password_hash, is_admin, created_at) VALUES(?, ?, ?, 1, ?)',
-      [email, displayName, hash, Date.now()],
-      function(err) {
-        if (err) {
-          return res.status(500).json({ error: 'DB error' });
-        }
-        const token = jwt.sign({ email, displayName, id: this.lastID, isAdmin: true }, jwtSecret, { expiresIn: '7d' });
-        res.json({ ok: true, token, email, displayName, isAdmin: true, message: 'Admin account created successfully' });
-      }
-    );
-  } catch (e) {
-    res.status(500).json({ error: 'Hash error' });
-  }
-});
-
-// Promote user to admin endpoint
-app.post('/admin/promote', (req, res) => {
-  const { email, setupKey } = req.body;
-  if (setupKey !== adminSetupKey) {
-    return res.status(403).json({ error: 'Invalid setup key' });
-  }
-  if (!email) {
-    return res.status(400).json({ error: 'Email required' });
-  }
-
-  db.run('UPDATE accounts SET is_admin = 1 WHERE email = ?', [email], function(err) {
-    if (err) return res.status(500).json({ error: 'DB error' });
-    if (this.changes === 0) return res.status(404).json({ error: 'User not found' });
-    res.json({ ok: true, message: `${email} is now an admin` });
-  });
-});
-
-// History endpoint: returns last 200 messages for a room
 app.get('/history/:room', (req, res) => {
   const room = req.params.room;
   db.all('SELECT id, room, from_user, to_user, msg, ts, read_at FROM messages WHERE room = ? ORDER BY ts ASC LIMIT 200', [room], (err, rows) => {
@@ -287,143 +204,31 @@ app.get('/history/:room', (req, res) => {
   });
 });
 
-// History endpoint for private messages
-app.get('/history/private/:user1/:user2', verifyToken, (req, res) => {
-    const { user1, user2 } = req.params;
-    const requester = req.user.displayName;
-
-    if (requester !== user1 && requester !== user2) {
-        return res.status(403).json({ error: 'Forbidden' });
-    }
-
-    db.all(`SELECT id, from_user, to_user, msg, ts, read_at
-            FROM messages
-            WHERE room IS NULL AND ((from_user = ? AND to_user = ?) OR (from_user = ? AND to_user = ?))
-            ORDER BY ts ASC LIMIT 200`,
-            [user1, user2, user2, user1], (err, rows) => {
-        if (err) return res.status(500).json({ error: 'DB error' });
-        res.json(rows || []);
-    });
-});
-
-
-// ============ ADMIN ENDPOINTS ============
-
-// Get all users (admin only)
-app.get('/admin/users', verifyToken, (req, res) => {
-  if (!req.user.isAdmin) {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
-
-  db.all('SELECT id, email, display_name, is_admin, created_at FROM accounts ORDER BY created_at DESC', (err, rows) => {
-    if (err) return res.status(500).json({ error: 'DB error' });
-    res.json(rows || []);
-  });
-});
-
-// Get all messages (admin only)
-app.get('/admin/messages', verifyToken, (req, res) => {
-  if (!req.user.isAdmin) {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
-
-  const limit = req.query.limit || 500;
-  const offset = req.query.offset || 0;
-  
-  db.all(
-    'SELECT id, room, from_user, to_user, msg, ts FROM messages ORDER BY ts DESC LIMIT ? OFFSET ?',
-    [parseInt(limit), parseInt(offset)],
-    (err, rows) => {
-      if (err) return res.status(500).json({ error: 'DB error' });
-      
-      // Get total count
-      db.get('SELECT COUNT(*) as total FROM messages', (err2, countRow) => {
-        if (err2) return res.status(500).json({ error: 'DB error' });
-        
-        res.json({
-          messages: rows || [],
-          total: countRow.total,
-          limit: parseInt(limit),
-          offset: parseInt(offset)
-        });
-      });
-    }
-  );
-});
-
-// Delete user (admin only)
-app.delete('/admin/users/:email', verifyToken, (req, res) => {
-  if (!req.user.isAdmin) {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
-
-  const email = req.params.email;
-  db.run('DELETE FROM accounts WHERE email = ?', [email], function(err) {
-    if (err) return res.status(500).json({ error: 'DB error' });
-    if (this.changes === 0) return res.status(404).json({ error: 'User not found' });
-    res.json({ ok: true, message: `User ${email} deleted` });
-  });
-});
-
-// Clear all messages (admin only)
-app.delete('/admin/messages', verifyToken, (req, res) => {
-  if (!req.user.isAdmin) {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
-
-  db.run('DELETE FROM messages', function(err) {
-    if (err) return res.status(500).json({ error: 'DB error' });
-    res.json({ ok: true, message: `All ${this.changes} messages deleted` });
-  });
-});
-
-// Clear messages in a room (admin only)
-app.delete('/admin/messages/:room', verifyToken, (req, res) => {
-  if (!req.user.isAdmin) {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
-
-  const room = req.params.room;
-  db.run('DELETE FROM messages WHERE room = ?', [room], function(err) {
-    if (err) return res.status(500).json({ error: 'DB error' });
-    res.json({ ok: true, message: `${this.changes} messages deleted from ${room}` });
-  });
-});
-
-// Get admin statistics
-app.get('/admin/stats', verifyToken, (req, res) => {
-  if (!req.user.isAdmin) {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
-
-  db.get('SELECT COUNT(*) as total_users FROM accounts', (err1, userCount) => {
-    if (err1) return res.status(500).json({ error: 'DB error' });
+app.get('/history/private/:otherUserId', verifyToken, (req, res) => {
+    const { otherUserId } = req.params;
+    const requesterId = req.user.id;
     
-    db.get('SELECT COUNT(*) as total_messages FROM messages', (err2, messageCount) => {
-      if (err2) return res.status(500).json({ error: 'DB error' });
-      
-      db.get('SELECT COUNT(DISTINCT room) as total_rooms FROM messages WHERE room IS NOT NULL', (err3, roomCount) => {
-        if (err3) return res.status(500).json({ error: 'DB error' });
-        
-        res.json({
-          totalUsers: userCount.total_users || 0,
-          totalMessages: messageCount.total_messages || 0,
-          totalRooms: roomCount.total_rooms || 0,
-          onlineUsers: socketToEmail.size
+    db.all('SELECT display_name FROM accounts WHERE id IN (?, ?)', [requesterId, otherUserId], (err, users) => {
+        if (err || users.length < 2) return res.status(500).json({ error: 'DB error or user not found' });
+        const requesterName = users.find(u => u.id == requesterId).display_name;
+        const otherUserName = users.find(u => u.id == otherUserId).display_name;
+
+        db.all(`SELECT id, from_user, to_user, msg, ts, read_at
+                FROM messages
+                WHERE room IS NULL AND ((from_user = ? AND to_user = ?) OR (from_user = ? AND to_user = ?))
+                ORDER BY ts ASC LIMIT 200`,
+                [requesterName, otherUserName, otherUserName, requesterName], (err, rows) => {
+            if (err) return res.status(500).json({ error: 'DB error' });
+            res.json(rows || []);
         });
-      });
     });
-  });
 });
 
-// Socket.io with JWT auth
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;
   if (!token) return next(new Error('No token'));
-
   try {
-    const decoded = jwt.verify(token, jwtSecret);
-    socket.user = decoded;
+    socket.user = jwt.verify(token, jwtSecret);
     next();
   } catch (e) {
     next(new Error('Invalid token'));
@@ -431,32 +236,20 @@ io.use((socket, next) => {
 });
 
 io.on('connection', (socket) => {
-  const email = socket.user.email;
-  const displayName = socket.user.displayName;
+  const { email, displayName, id: userId } = socket.user;
   socketToEmail.set(socket.id, email);
-  io.emit('user status', { username: displayName, status: 'online' });
+  userIdToSocket.set(userId, socket.id);
+  socketToUserId.set(socket.id, userId);
+  io.emit('user status', { userId, status: 'online' });
 
   socket.on('set username', (username, ack) => {
-    if (!username || typeof username !== 'string') return ack && ack({ ok: false, error: 'Invalid username' });
+    if (!username || typeof username !== 'string' || !username.trim()) {
+        return ack && ack({ ok: false, error: 'Invalid username' });
+    }
     username = username.trim();
-    if (!username) return ack && ack({ ok: false, error: 'Invalid username' });
-
-    // Check if username is already taken by another socket
-    db.get('SELECT socket_id FROM users WHERE username = ?', [username], (err, row) => {
-      if (err) return ack && ack({ ok: false, error: 'DB error' });
-      if (row && row.socket_id && row.socket_id !== socket.id) {
-        return ack && ack({ ok: false, error: 'Username already taken' });
-      }
-
-      // Save in DB and in-memory maps
-      db.run('INSERT OR REPLACE INTO users(username, socket_id) VALUES(?, ?)', [username, socket.id], (err2) => {
-        if (err2) return ack && ack({ ok: false, error: 'DB save failed' });
-        socketToUsername.set(socket.id, username);
-        usernameToSocket.set(username, socket.id);
-        ack && ack({ ok: true });
-        io.emit('user status', { username, status: 'online' });
-      });
-    });
+    socketToUsername.set(socket.id, username);
+    usernameToSocket.set(username, socket.id);
+    ack && ack({ ok: true });
   });
 
   socket.on('create or join', (room, ack) => {
@@ -465,221 +258,59 @@ io.on('connection', (socket) => {
     ack && ack({ ok: true });
   });
 
-  socket.on('chat message', (payload) => {
-    // payload: { room, msg, to }
-    const from = socketToUsername.get(socket.id) || displayName || 'Anonymous';
-    const ts = Date.now();
-
-    // Validate message
-    const msg = sanitizeInput(payload.msg);
-    if (!msg) {
-      return socket.emit('system message', '❌ Message cannot be empty');
-    }
-    if (msg.length > 500) {
-      return socket.emit('system message', '❌ Message is too long (max 500 characters)');
-    }
-
-    if (payload.to) {
-      const targetId = usernameToSocket.get(payload.to);
-      // Persist private message
-      db.run('INSERT INTO messages(room, from_user, to_user, msg, ts) VALUES(?,?,?,?,?)', [null, from, payload.to, msg, ts], function(err) {
-        if (err) {
-            console.error('Message save error:', err)
-            return;
-        };
-        const messageId = this.lastID;
-        if (targetId) {
-          io.to(targetId).emit('private message', { id: messageId, from, msg, ts, read_at: null });
-          socket.emit('private message', { id: messageId, from, msg, ts, delivered: true });
-        } else {
-          socket.emit('system message', `❌ User ${payload.to} not found or offline`);
-        }
-      });
-    } else if (payload.room) {
-      // Persist room message
-      db.run('INSERT INTO messages(room, from_user, to_user, msg, ts) VALUES(?,?,?,?,?)', [payload.room, from, null, msg, ts], function(err) {
-        if (err) {
-            console.error('Message save error:', err);
-            return;
-        }
-        io.to(payload.room).emit('chat message', { from, msg, room: payload.room, ts, id: this.lastID });
-      });
-    } else {
-      db.run('INSERT INTO messages(room, from_user, to_user, msg, ts) VALUES(?,?,?,?,?)', [null, from, null, msg, ts], function(err) {
-        if (err) console.error('Message save error:', err);
-        io.emit('chat message', { from, msg, ts, id: this.lastID });
-      });
-    }
-  });
-
-  socket.on('mark as read', (messageIds) => {
-    const username = socketToUsername.get(socket.id);
-    if (!username) return;
-
-    const ids = Array.isArray(messageIds) ? messageIds : [messageIds];
-    if (ids.length === 0) return;
-
-    const placeholders = ids.map(() => '?').join(',');
-
-    db.all(`SELECT id, from_user, to_user FROM messages WHERE id IN (${placeholders})`, ids, (err, messages) => {
-        if (err || !messages || messages.length === 0) return;
-
-        const messagesToUpdate = messages.filter(m => m.to_user === username);
-        const idsToUpdate = messagesToUpdate.map(m => m.id);
-        if (idsToUpdate.length === 0) return;
-
-        const updatePlaceholders = idsToUpdate.map(() => '?').join(',');
-        const now = Date.now();
-
-        db.run(`UPDATE messages SET read_at = ? WHERE id IN (${updatePlaceholders}) AND read_at IS NULL`, [now, ...idsToUpdate], function(err) {
-            if (err || this.changes === 0) return;
-
-            const notifications = new Map();
-            messagesToUpdate.forEach(m => {
-                if (!notifications.has(m.from_user)) {
-                    notifications.set(m.from_user, []);
-                }
-                notifications.get(m.from_user).push(m.id);
-            });
-
-            notifications.forEach((msgIds, from_user) => {
-                const senderSocketId = usernameToSocket.get(from_user);
-                if (senderSocketId) {
-                    io.to(senderSocketId).emit('messages read', { ids: msgIds, read_at: now, by: username });
-                }
-            });
-        });
-    });
-  });
-
-  // Typing indicator
-  socket.on('typing', (data) => {
-    const username = socketToUsername.get(socket.id);
-    if (!username) return;
-    
-    if (data.room) {
-      socket.to(data.room).emit('user typing', { username, room: data.room });
-    } else if (data.to) {
-      const targetId = usernameToSocket.get(data.to);
-      if (targetId) {
-        io.to(targetId).emit('user typing', { username, from: username });
-      }
-    }
-  });
-
-  socket.on('stop typing', (data) => {
-    const username = socketToUsername.get(socket.id);
-    if (!username) return;
-    
-    if (data.room) {
-      socket.to(data.room).emit('user stop typing', { username });
-    } else if (data.to) {
-      const targetId = usernameToSocket.get(data.to);
-      if (targetId) {
-        io.to(targetId).emit('user stop typing', { username });
-      }
-    }
-  });
-
-  // User status
-  socket.on('set status', (status, ack) => {
-    const username = socketToUsername.get(socket.id);
-    if (!username) return ack && ack({ ok: false });
-    
-    const validStatuses = ['online', 'away', 'do-not-disturb'];
-    if (!validStatuses.includes(status)) {
-      return ack && ack({ ok: false, error: 'Invalid status' });
-    }
-    
-    db.run('UPDATE users SET status = ? WHERE username = ?', [status, username]);
-    socket.broadcast.emit('user status', { username, status });
-    ack && ack({ ok: true });
-  });
-
-  socket.on('leave room', (room, ack) => {
+  socket.on('leave room', (room) => {
     socket.leave(room);
     socket.to(room).emit('system message', `${socketToUsername.get(socket.id) || 'Someone'} left ${room}`);
-    ack && ack({ ok: true });
+  });
+
+  socket.on('typing', (data) => {
+    socket.to(data.room).emit('typing', data);
+  });
+
+  socket.on('chat message', (payload) => {
+    const from = socketToUsername.get(socket.id) || displayName || 'Anonymous';
+    const ts = Date.now();
+    const msg = sanitizeInput(payload.msg);
+    if (!msg || msg.length > 500) {
+      return socket.emit('system message', '❌ Invalid message');
+    }
+
+    if (payload.to) { // 'to' is recipient's userId
+      const toUserId = payload.to;
+      const targetSocketId = userIdToSocket.get(toUserId);
+      db.get('SELECT display_name FROM accounts WHERE id = ?', [toUserId], (err, user) => {
+          if (err || !user) {
+              return socket.emit('system message', '❌ Recipient not found.');
+          }
+          const toDisplayName = user.display_name;
+          db.run('INSERT INTO messages(from_user, to_user, msg, ts) VALUES(?,?,?,?)', [from, toDisplayName, msg, ts], function(err) {
+            if (err) return console.error('Message save error:', err);
+            const messageId = this.lastID;
+            if (targetSocketId) {
+              io.to(targetSocketId).emit('private message', { id: messageId, from, msg, ts, to: toDisplayName });
+            }
+            socket.emit('private message', { id: messageId, from, msg, ts, to: toDisplayName, delivered: !!targetSocketId });
+          });
+      });
+    } else if (payload.room) {
+      db.run('INSERT INTO messages(room, from_user, msg, ts) VALUES(?,?,?,?)', [payload.room, from, msg, ts], function(err) {
+        if (err) return console.error('Message save error:', err);
+        io.to(payload.room).emit('chat message', { from, msg, room: payload.room, ts, id: this.lastID });
+      });
+    }
   });
 
   socket.on('disconnect', () => {
-    const username = socketToUsername.get(socket.id);
-    if (username) {
-      usernameToSocket.delete(username);
-      db.run('DELETE FROM users WHERE username = ?', [username]);
-      io.emit('user status', { username, status: 'offline' });
+    const uId = socketToUserId.get(socket.id);
+    if (uId) {
+        userIdToSocket.delete(uId);
+        io.emit('user status', { userId: uId, status: 'offline' });
     }
+    socketToUserId.delete(socket.id);
+    const username = socketToUsername.get(socket.id);
+    if (username) usernameToSocket.delete(username);
     socketToUsername.delete(socket.id);
     socketToEmail.delete(socket.id);
-  });
-
-  // Admin: broadcast system announcement
-  socket.on('admin announce', (msg, ack) => {
-    db.get('SELECT is_admin FROM accounts WHERE email = ?', [email], (err, row) => {
-      if (err || !row || !row.is_admin) {
-        return ack && ack({ ok: false, error: 'Admin only' });
-      }
-      io.emit('system message', `📢 ANNOUNCEMENT: ${msg}`);
-      ack && ack({ ok: true });
-    });
-  });
-
-  // Admin: kick user from room
-  socket.on('admin kick', (data, ack) => {
-    const { username, room } = data;
-    db.get('SELECT is_admin FROM accounts WHERE email = ?', [email], (err, row) => {
-      if (err || !row || !row.is_admin) {
-        return ack && ack({ ok: false, error: 'Admin only' });
-      }
-      const targetId = usernameToSocket.get(username);
-      if (targetId) {
-        io.to(targetId).emit('system message', `You were kicked from ${room} by an admin`);
-        const targetSocket = io.sockets.sockets.get(targetId);
-        if (targetSocket) {
-          targetSocket.leave(room);
-        }
-        ack && ack({ ok: true, message: `${username} kicked from ${room}` });
-      } else {
-        ack && ack({ ok: false, error: 'User not found' });
-      }
-    });
-  });
-
-  // Admin: ban user
-  socket.on('admin ban', (username, ack) => {
-    db.get('SELECT is_admin FROM accounts WHERE email = ?', [email], (err, row) => {
-      if (err || !row || !row.is_admin) {
-        return ack && ack({ ok: false, error: 'Admin only' });
-      }
-      const targetId = usernameToSocket.get(username);
-      if (targetId) {
-        io.to(targetId).emit('system message', 'You have been banned by an admin');
-        const targetSocket = io.sockets.sockets.get(targetId);
-        if (targetSocket) {
-          targetSocket.disconnect(true);
-        }
-        ack && ack({ ok: true, message: `${username} banned` });
-      } else {
-        ack && ack({ ok: false, error: 'User not found' });
-      }
-    });
-  });
-
-  // Admin: mute user
-  socket.on('admin mute', (username, ack) => {
-    db.get('SELECT is_admin FROM accounts WHERE email = ?', [email], (err, row) => {
-      if (err || !row || !row.is_admin) {
-        return ack && ack({ ok: false, error: 'Admin only' });
-      }
-      // Mark user as muted (simple approach)
-      const targetId = usernameToSocket.get(username);
-      if (targetId) {
-        io.to(targetId).emit('system message', 'You have been muted by an admin');
-        ack && ack({ ok: true, message: `${username} muted` });
-      } else {
-        ack && ack({ ok: false, error: 'User not found' });
-      }
-    });
   });
 });
 

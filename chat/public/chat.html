@@ -1,1 +1,79 @@
-<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <title>Fun Chat - Real-time Messaging</title>\n    <link rel=\"stylesheet\" href=\"/style.css\" />\n    <style>\n        body {\n            display: flex;\n            height: 100vh;\n            overflow: hidden;\n        }\n        #app {\n            display: flex;\n            width: 100%;\n            height: 100%;\n        }\n        #sidebar {\n            width: 250px;\n            border-right: 1px solid #ddd;\n            display: flex;\n            flex-direction: column;\n            background: #f5f5f5;\n        }\n        #sidebar h2 {\n            padding: 1rem;\n            margin: 0;\n            border-bottom: 1px solid #ddd;\n            font-size: 1.2rem;\n            background: white;\n        }\n        #userList {\n            flex-grow: 1;\n            overflow-y: auto;\n        }\n        .user-item {\n            padding: 0.75rem 1rem;\n            cursor: pointer;\n            border-bottom: 1px solid #eee;\n            display: flex;\n            align-items: center;\n        }\n        .user-item:hover {\n            background: #e9e9e9;\n        }\n        .status-circle {\n            width: 10px;\n            height: 10px;\n            border-radius: 50%;\n            margin-right: 10px;\n            display: inline-block;\n        }\n        #main-content {\n            flex-grow: 1;\n            display: flex;\n            flex-direction: column;\n            height: 100vh; /* Ensure it takes full viewport height */\n        }\n        #chat {\n            flex-grow: 1;\n            display: flex;\n            flex-direction: column;\n            overflow: hidden; /* Prevent content from overflowing */\n        }\n        #messages {\n            flex-grow: 1;\n            overflow-y: auto;\n            padding: 1rem;\n            background: #f9f9f9;\n        }\n        #composer {\n            padding: 1rem;\n            background: white;\n            border-top: 1px solid #ddd;\n        }\n    </style>\n  </head>\n  <body>\n    <div id=\"app\">\n        <aside id=\"sidebar\">\n            <h2>Users</h2>\n            <div id=\"userList\">\n                <!-- User list will be populated by JS -->\n            </div>\n        </aside>\n\n        <main id=\"main-content\">\n            <header>\n                <div>\n                <h1>💬 Fun Chat</h1>\n                <div style=\"display: flex; align-items: center; gap: 10px;\">\n                    <span id=\"userDisplayName\"></span>\n                    <button id=\"logoutBtn\">🚪 Logout</button>\n                </div>\n                </div>\n            </header>\n\n            <section id=\"controls\">\n                <label for=\"username\">👤 Username:</label>\n                <input id=\"username\" type=\"text\" placeholder=\"Set your chat name\" />\n                <button id=\"setName\">✓ Set</button>\n                \n                <div style=\"display: flex; gap: 8px; align-items: center;\">\n                <label for=\"statusSelect\" style=\"font-size: 13px;\">Status:</label>\n                <select id=\"statusSelect\" style=\"padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; background: white;\">\n                    <option value=\"online\">🟢 Online</option>\n                    <option value=\"away\">🟡 Away</option>\n                    <option value=\"do-not-disturb\">🔴 Do Not Disturb</option>\n                </select>\n                </div>\n\n                <div id=\"publicChatSection\">\n                <button id=\"switchPublic\">📢 Public Chat (Global)</button>\n                </div>\n\n                <div id=\"groupChatSection\">\n                <label for=\"room\">🔒 Group Room:</label>\n                <input id=\"room\" type=\"text\" placeholder=\"room-name\" />\n                <button id=\"joinRoom\">➕ Join/Create</button>\n                <button id=\"leaveRoom\">➖ Leave</button>\n                </div>\n            </section>\n\n            <section id=\"chat\">\n                <div id=\"chatHeader\">📢 Public Chat (Global)</div>\n                <div id=\"messages\"></div>\n                <div id=\"composer\">\n                <input id=\"toUser\" type=\"text\" placeholder=\"@username (optional)\" />\n                <input id=\"message\" type=\"text\" placeholder=\"Type a message...\" />\n                <button id=\"send\">Send</button>\n                </div>\n            </section>\n        </main>\n    </div>\n\n    <script src=\"/socket.io/socket.io.js\"></script>\n    <script src=\"/chat-script.js\"></script>\n  </body>\n</html>\n
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fun Chat - Real-time Messaging</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div id="app-loading">Loading...</div>
+
+    <div id="app" style="display:none;">
+        <aside id="sidebar">
+            <div class="sidebar-header">
+                <h2>Fun Chat</h2>
+                <div id="theme-toggle">🌙</div>
+            </div>
+            <div id="rooms-section">
+                <h3>Rooms</h3>
+                <ul id="rooms"></ul>
+                <div class="room-creator">
+                    <input type="text" id="new-room-name" placeholder="New room name" />
+                    <button id="create-room-btn">+</button>
+                </div>
+            </div>
+            <div id="users-section">
+                <h3>Users</h3>
+                <ul id="users"></ul>
+            </div>
+             <div class="sidebar-footer">
+                <div id="user-profile">
+                    <span id="user-avatar"></span>
+                    <span id="userDisplayName"></span>
+                </div>
+                <button id="logoutBtn">Logout</button>
+            </div>
+        </aside>
+
+        <main id="main-content">
+            <div id="wallpaper-container"></div>
+            <div id="chat-header">
+                <h1 id="chat-title"></h1>
+                <div class="chat-header-actions">
+                     <input type="text" id="wallpaper-url" placeholder="Image URL for wallpaper" />
+                     <button id="set-wallpaper-btn">Set</button>
+                </div>
+            </div>
+
+            <div id="messages"></div>
+
+            <div id="composer">
+                <div id="typing-indicator"></div>
+                <form id="message-form">
+                    <input id="message-input" placeholder="Type a message..." autocomplete="off" />
+                    <button type="submit">Send</button>
+                </form>
+            </div>
+        </main>
+    </div>
+
+    <!-- DM Modal -->
+    <div id="dm-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="dm-recipient"></h2>
+                <span class="close-btn">&times;</span>
+            </div>
+            <div id="dm-messages" class="messages-container"></div>
+            <form id="dm-form">
+                <input id="dm-input" placeholder="Send a private message..." autocomplete="off"/>
+                <button type="submit">Send</button>
+            </form>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/chat-script.js"></script>
+  </body>
+</html>

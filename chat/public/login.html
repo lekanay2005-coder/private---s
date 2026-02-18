@@ -1,308 +1,39 @@
-<!doctype html>
+
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Fun Chat - Login & Sign Up</title>
-    <style>
-      * {
-        box-sizing: border-box;
-      }
-
-      body {
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        margin: 0;
-        padding: 0;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-
-      .auth-container {
-        background: white;
-        padding: 40px;
-        border-radius: 16px;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-        width: 100%;
-        max-width: 420px;
-        animation: slideUp 0.5s ease-out;
-      }
-
-      @keyframes slideUp {
-        from {
-          opacity: 0;
-          transform: translateY(30px);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
-      }
-
-      h1 {
-        text-align: center;
-        color: #333;
-        margin: 0 0 30px 0;
-        font-size: 26px;
-      }
-
-      .form-group {
-        margin-bottom: 18px;
-      }
-
-      label {
-        display: block;
-        margin-bottom: 8px;
-        color: #333;
-        font-weight: 600;
-        font-size: 14px;
-      }
-
-      input {
-        width: 100%;
-        padding: 12px 14px;
-        border: 1px solid #ddd;
-        border-radius: 8px;
-        font-size: 16px;
-        font-family: inherit;
-        transition: all 0.3s;
-      }
-
-      input:focus {
-        outline: none;
-        border-color: #667eea;
-        box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
-      }
-
-      button {
-        width: 100%;
-        padding: 12px;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border: none;
-        border-radius: 8px;
-        font-size: 16px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.3s;
-        margin-top: 8px;
-        font-family: inherit;
-      }
-
-      button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
-      }
-
-      button:active {
-        transform: translateY(0);
-      }
-
-      .toggle-signup {
-        text-align: center;
-        margin-top: 20px;
-        font-size: 14px;
-        color: #666;
-      }
-
-      .toggle-signup a {
-        color: #667eea;
-        cursor: pointer;
-        text-decoration: none;
-        font-weight: 600;
-        transition: color 0.3s;
-      }
-
-      .toggle-signup a:hover {
-        text-decoration: underline;
-        color: #764ba2;
-      }
-
-      .error {
-        color: #d32f2f;
-        font-size: 13px;
-        margin-top: 8px;
-        text-align: center;
-        padding: 8px;
-        background: #ffebee;
-        border-radius: 6px;
-        border-left: 3px solid #d32f2f;
-      }
-
-      .hidden {
-        display: none;
-      }
-
-      @media (max-width: 480px) {
-        .auth-container {
-          padding: 30px 20px;
-          border-radius: 12px;
-        }
-
-        h1 {
-          font-size: 22px;
-          margin-bottom: 24px;
-        }
-
-        button {
-          padding: 11px;
-          font-size: 15px;
-        }
-      }
-    </style>
-  </head>
-  <body>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login or Register | Fun Chat</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="wallpaper-container"></div>
+  <div class="auth-wrapper">
     <div class="auth-container">
-      <!-- Login Form -->
-      <div id="loginForm">
-        <h1>🔐 Fun Chat</h1>
-        <div class="form-group">
-          <label for="loginEmail">Email Address</label>
-          <input id="loginEmail" type="email" placeholder="your@email.com" required />
+      <h1 id="authTitle">Login</h1>
+      <form id="authForm">
+        <div class="form-group" id="displayNameGroup" style="display: none;">
+          <label for="displayName">Display Name</label>
+          <input type="text" id="displayName" placeholder="Choose a fun display name">
         </div>
         <div class="form-group">
-          <label for="loginPassword">Password</label>
-          <input id="loginPassword" type="password" placeholder="Enter your password" required />
-        </div>
-        <button id="loginBtn">Sign In</button>
-        <div id="loginError" class="error" style="display: none;"></div>
-        <div class="toggle-signup">
-          Don't have an account? <a id="toSignup">Create one</a>
-        </div>
-      </div>
-
-      <!-- Signup Form -->
-      <div id="signupForm" class="hidden">
-        <h1>🎉 Join Fun Chat</h1>
-        <div class="form-group">
-          <label for="signupEmail">Email Address</label>
-          <input id="signupEmail" type="email" placeholder="your@email.com" required />
+          <label for="email">Email</label>
+          <input type="email" id="email" required placeholder="your@email.com">
         </div>
         <div class="form-group">
-          <label for="signupName">Display Name</label>
-          <input id="signupName" type="text" placeholder="Your Name" required />
+          <label for="password">Password</label>
+          <input type="password" id="password" required placeholder="Min 6 characters">
         </div>
-        <div class="form-group">
-          <label for="signupPassword">Password (min 6 characters)</label>
-          <input id="signupPassword" type="password" placeholder="Create a password" required />
-        </div>
-        <button id="signupBtn">Create Account</button>
-        <div id="signupError" class="error" style="display: none;"></div>
-        <div class="toggle-signup">
-          Already have an account? <a id="toLogin">Sign in</a>
-        </div>
-      </div>
+        <button type="submit" id="submitBtn">Login</button>
+      </form>
+      <div id="errorMessage"></div>
+      <p class="toggle-auth">
+        <span id="toggleText">Need an account?</span>
+        <a href="#" id="toggleAuthLink">Register here</a>
+      </p>
     </div>
-
-    <script>
-      const loginForm = document.getElementById('loginForm');
-      const signupForm = document.getElementById('signupForm');
-      const toSignup = document.getElementById('toSignup');
-      const toLogin = document.getElementById('toLogin');
-      const loginBtn = document.getElementById('loginBtn');
-      const signupBtn = document.getElementById('signupBtn');
-      const loginError = document.getElementById('loginError');
-      const signupError = document.getElementById('signupError');
-      const loginEmail = document.getElementById('loginEmail');
-      const loginPassword = document.getElementById('loginPassword');
-      const signupEmail = document.getElementById('signupEmail');
-      const signupName = document.getElementById('signupName');
-      const signupPassword = document.getElementById('signupPassword');
-
-      toSignup.addEventListener('click', () => {
-        loginForm.classList.add('hidden');
-        signupForm.classList.remove('hidden');
-        loginError.style.display = 'none';
-      });
-
-      toLogin.addEventListener('click', () => {
-        signupForm.classList.add('hidden');
-        loginForm.classList.remove('hidden');
-        signupError.style.display = 'none';
-      });
-
-      loginBtn.addEventListener('click', async () => {
-        const email = loginEmail.value.trim();
-        const password = loginPassword.value;
-        if (!email || !password) {
-          loginError.textContent = '✗ Email and password required';
-          loginError.style.display = 'block';
-          return;
-        }
-
-        try {
-          const res = await fetch('/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password })
-          });
-          const data = await res.json();
-          if (data.ok) {
-            localStorage.setItem('token', data.token);
-            localStorage.setItem('displayName', data.displayName);
-            window.location.href = '/chat.html';
-          } else {
-            loginError.textContent = '✗ ' + (data.error || 'Login failed');
-            loginError.style.display = 'block';
-          }
-        } catch (e) {
-          loginError.textContent = '✗ Network error';
-          loginError.style.display = 'block';
-        }
-      });
-
-      signupBtn.addEventListener('click', async () => {
-        const email = signupEmail.value.trim();
-        const displayName = signupName.value.trim();
-        const password = signupPassword.value;
-        if (!email || !displayName || !password) {
-          signupError.textContent = '✗ All fields required';
-          signupError.style.display = 'block';
-          return;
-        }
-        if (password.length < 6) {
-          signupError.textContent = '✗ Password must be at least 6 characters';
-          signupError.style.display = 'block';
-          return;
-        }
-
-        try {
-          const res = await fetch('/register', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, displayName, password })
-          });
-          const data = await res.json();
-          if (data.ok) {
-            localStorage.setItem('token', data.token);
-            localStorage.setItem('displayName', data.displayName);
-            window.location.href = '/chat.html';
-          } else {
-            signupError.textContent = '✗ ' + (data.error || 'Signup failed');
-            signupError.style.display = 'block';
-          }
-        } catch (e) {
-          signupError.textContent = '✗ Network error';
-          signupError.style.display = 'block';
-        }
-      });
-
-      // Enter key support
-      [loginPassword, signupPassword].forEach(el => {
-        el.addEventListener('keypress', (e) => {
-          if (e.key === 'Enter') {
-            if (loginForm.classList.contains('hidden')) signupBtn.click();
-            else loginBtn.click();
-          }
-        });
-      });
-
-      // Auto-check if already logged in
-      if (localStorage.getItem('token')) {
-        window.location.href = '/chat.html';
-      }
-    </script>
-  </body>
+  </div>
+  <script src="login.js"></script>
+</body>
 </html>
